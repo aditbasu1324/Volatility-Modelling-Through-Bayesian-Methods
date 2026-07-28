@@ -1,0 +1,3 @@
+### Data
+
+Historical volatility (HV) is inherently retrospective: computing $\hat\sigma_t^{empirical}$ for any day requires the following 21 days of returns, which are never available in real time. This applies uniformly throughout the dataset (including at period and window boundaries) and reflects HV's role purely as a benchmark for post-hoc evaluation, not as a live/real-time forecasting quantity.
