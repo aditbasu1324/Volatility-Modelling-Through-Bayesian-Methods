@@ -3,7 +3,7 @@ Extra Stuff
 LLN argument and the quadratic variation argument
 
 Key idea is mesh size of quadratic variation.
-This concept doesn't hold in LLN since the day's stuff only matters
+This concept doesn't hold in LLN since the day's stuff only matters i.e can't decrease mesh size
 
 
 
@@ -173,3 +173,225 @@ A significant result on either test indicates the model has systematic, time-var
 Unlike return forecasting, where the true outcome is directly observable, volatility is fundamentally latent — even with perfect data, $\sigma_t^{true}$ is never directly observed, only proxied. Because of this, there is no single "final" test analogous to comparing a return forecast against the realized return.
 
 Each metric in this evaluation framework (QLIKE, RV coverage, PIT/KS) is instead an indirect, partial lens onto model quality, each with its own blind spots (see Sources of Error and the leverage/clustering discussion above). Disagreement between metrics is itself informative — a model passing QLIKE but failing PIT/KS, for example, indicates a specific kind of miscalibration (distributional shape or timing) rather than a magnitude problem — even though no single number can ever confirm the model matches the unobservable truth exactly.
+
+
+
+
+
+## Historical Volatility (Benchmark)
+
+$$
+    \hat{\sigma}_t^{empirical} = \sqrt{\frac{1}{h-1}
+    \sum_{i=1}^{h}(r_{t+i} - \bar{r}_t)^2}
+$$
+
+where $r_{t}=\ln\left(\frac{P_{t}}{P_{t-1}}\right)$, $\bar{r}_t = \frac{1}{h}\sum_{i=1}^{h} r_{t+i}$, $h=21$.
+
+- Represents average volatility over the window, assuming volatility is constant within it.
+- Compared against the model side via RMS:
+
+$$
+    \hat{\sigma}_t^{model} =\sqrt{\frac{1}{h-1}\sum_{i=1}^{h} \sigma_{t+i}^{2}}
+$$
+
+where $\sigma_t$ = model's instantaneous volatility estimate.
+
+**Why does this estimator work at all?**
+- LLN: sample variance → true $\sigma_t^2$ as $h \to \infty$, if returns are drawn from a fixed-variance distribution.
+
+**Why $h=21$?**
+- Standard error shrinks $\propto \frac{1}{\sqrt{h}}$.
+- $h=1$: mostly idiosyncratic noise. $h=21$: noise partially averages out.
+- Same logic applies to RMS-aggregating the model side over the same window.
+
+**Why RMS for the models?**
+- Empirical side: one SD over the whole window (assumes constant volatility).
+- Model side: a distinct daily estimate per day → needs aggregating.
+- RMS (not simple average) works because variance is additive under conditional independence: $\text{Var}\left(\sum_i r_{t+i}\right) = \sum_i \sigma_{t+i}^2$, no cross-terms.
+- All models tested assume conditionally independent daily variances, so this holds.
+
+**Sources of error** (even for a correctly specified model):
+1. **Systematic estimation error** — $\hat\sigma_t^{empirical}$ is a finite-sample estimator (21 returns), carrying its own sampling variance regardless of model quality.
+2. **Genuine model error** — actual misspecification/approximation error.
+
+- Fair comparison requires factoring #1 into the model side too — via a log-normal noise model (strictly positive, analytically tractable).
+
+## QLIKE Loss
+
+$$
+    \text{QLIKE}(\hat{\sigma}_t, RV_t) = \frac{RV_t^2}{\hat{\sigma}_t^2} 
+    - \log\!\left(\frac{RV_t^2}{\hat{\sigma}_t^2}\right) - 1
+$$
+
+- Compares pointwise model volatility estimates against realized/historical volatility.
+- Lower mean QLIKE = better fit.
+
+**Why QLIKE?**
+
+- **Why QLIKE?**
+
+- **Asymmetric penalty for underprediction**: for *any* proportional miss, underpredicting volatility by a factor $k$ incurs strictly more loss than overpredicting by the same factor $k$ (verified directly from the loss function: $\text{Loss}_{\text{under}}(k) - \text{Loss}_{\text{over}}(k) = k^2 - 1/k^2 - 4\log k > 0$ for all $k>1$).
+  - Underestimating volatility is generally more costly in practice (risk management, option pricing) — this asymmetry reflects that.
+- **Robust to a noisy proxy**: true volatility is unobservable, so evaluation must use a noisy proxy ($RV_t$) instead. QLIKE remains valid under this — model rankings match what they'd be under the true (unobservable) volatility (Patton, 2011).
+  - This is the main reason QLIKE (not MSE) is standard here: it directly addresses the systematic estimation error in $RV_t$ (see Sources of Error, above) rather than being distorted by it.
+
+## Realized Volatility Coverage
+
+$$\hat\sigma_t^{empirical} = \sigma_t^{true} \cdot \exp(\eta_t), \quad \eta_t \sim N(0,\sigma_\eta^2)$$
+
+$$\hat\sigma_\eta = \text{std}\left(\log \hat\sigma_t^{empirical} - \log \hat\sigma_t^{model}\right)$$
+
+- Coverage = % of $\hat\sigma_t^{empirical}$ values falling within the model's credible interval for $\hat\sigma_t^{model}$, widened using $\hat\sigma_\eta$.
+
+**Why is this adjustment needed, even for EGARCH/SV's own credible intervals?**
+
+- A model's credible interval reflects its posterior belief about the *true* latent $\sigma_t^{true}$ — it says nothing about the noise in $\hat\sigma_t^{empirical}$ itself, since that's a property of the benchmark's construction (finite 21-return sample), not of the model.
+- Without adjustment, checking coverage directly against the model's raw interval implicitly assumes $\hat\sigma_t^{empirical} = \sigma_t^{true}$ exactly — which isn't true, per Sources of Error above.
+- This would show artificially poor coverage (too many "misses") purely due to the benchmark's own noise, misattributing it to model miscalibration — a generic issue independent of which model is used.
+- Widening the interval by the estimated $\hat\sigma_\eta$ correctly separates "is the model's belief about the truth reasonable" from "is my benchmark itself noisy" — isolating the thing actually being tested (model calibration).
+
+**Is this circular?**
+- Regression: $\hat\sigma_\eta$ is fit once, globally over the whole regression period — not tuned per-window to that window's outcome, so it can't trivially inflate coverage to look artificially good.
+- Sequential: no ambiguity — $\hat\sigma_\eta$ uses only data prior to each window, genuinely out-of-sample.
+
+**Why log-normal noise specifically?**
+- **Positivity**: multiplicative noise ($\times\exp(\eta_t)$) keeps $\hat\sigma_t^{empirical}$ strictly positive, unlike additive Gaussian noise which could push it negative.
+- **Empirical regularity**: log-volatility is commonly observed to be approximately normally distributed, even when volatility itself is skewed — motivating the log transform specifically, not an arbitrary choice.
+- **Tractability**: reduces to a single scalar noise parameter ($\sigma_\eta$), directly estimable and easy to combine with the model's own posterior on the log scale.
+- More flexible alternatives (e.g. gamma or non-central chi-squared noise models) exist but add complexity without strong evidence they're needed here — log-normal is the simplest choice consistent with both positivity and the known empirical shape of volatility noise.
+
+Maybe add this justification near the start
+
+## Return Calibration Test (PIT / KS)
+
+$$u_t = F_t(r_t)$$
+
+where $F_t$ is the model's estimated CDF of returns at time $t$ (derived from $\hat\sigma_t^{model}$, e.g. $r_t \sim N(0, (\hat\sigma_t^{model})^2)$), and $r_t$ is the actual observed return.
+
+- $u_t$ = the fraction of the model's estimated return distribution lying below the actual return at time $t$.
+
+### Why Does This Work? (The PIT Theorem)
+
+If $r_t$ is truly drawn from the distribution $F_t$ that the model assumes, then the transformed value $u_t = F_t(r_t)$ is **uniformly distributed on $[0,1]$** — this is a general probability result (the Probability Integral Transform), true for *any* continuous distribution, not specific to returns or volatility.
+
+Intuition: $F_t$ maps outcomes to their own percentile under the model. If the model's distributional assumption is exactly correct, then by definition, the actual return is equally likely to fall at any percentile of that distribution — landing in the bottom 10% happens 10% of the time, the top 5% happens 5% of the time, and so on. This is what "well-calibrated" means: the model's stated uncertainty matches reality.
+
+This gives a testable implication: compute $u_t$ across all $t$, and check whether the resulting values look uniform. If the model is miscalibrated (e.g. consistently too narrow, too wide, or systematically biased), the empirical distribution of $u_t$ will deviate from uniform in a detectable way — e.g., too many $u_t$ near 0 and 1 means the model's intervals are too narrow (true returns fall in the tails more often than the model expects).
+
+### Testing Uniformity: Kolmogorov-Smirnov
+
+Uniformity of $\{u_t\}$ is tested via the KS test (Massey, 1951), which compares the empirical CDF of $\{u_t\}$ against the CDF of a true Uniform(0,1) distribution. $p < 0.05$ indicates the model is not well calibrated.
+
+### Return Coverage
+
+Analogous to RV coverage: the percentage of actual returns falling within the model's credible interval (for various interval widths), directly from the $u_t$ values (e.g. a 90% interval is violated if $u_t < 0.05$ or $u_t > 0.95$).
+
+### Why This Test, Given RV Coverage Already Exists?
+
+- **Independent of the noise correction** used for RV coverage ($\hat\sigma_\eta$) — this test operates purely on daily returns and the model's own distributional assumption, with no separate proxy-noise model needed.
+- **Different sensitivity**: RV coverage checks calibration of the volatility *magnitude* over a 21-day window; PIT/KS checks calibration of the full *return distribution*, day by day. A model could get the window-average magnitude right (passing RV coverage) while still being miscalibrated day-to-day (failing PIT/KS) — or vice versa.
+- Because it says nothing directly about whether the volatility *level* itself is systematically too high or low (only whether the *shape* of the day-to-day distribution is well-calibrated), this is treated as a supporting metric rather than a primary one.
+
+**A caveat: PIT/KS jointly tests two things, and the assumed shape differs by model**
+
+Computing $u_t = F_t(r_t)$ requires committing to a specific shape for $F_t$:
+- **Rolling average, PF-SV**: $r_t \sim N(0, (\hat\sigma_t^{model})^2)$
+- **EGARCH(1,1)-t**: $r_t \sim t_\nu(0, (\hat\sigma_t^{model})^2)$ (scaled Student-t, with $\nu$ fit as part of the model)
+
+The PIT theorem itself is distribution-free, but *this application* of it jointly tests whether (a) $\hat\sigma_t^{model}$ is the correct volatility level, and (b) the assumed innovation shape is correct. A PIT/KS failure doesn't distinguish between these.
+
+Because EGARCH already assumes fatter tails (Student-t) than the Gaussian-based models, a PIT/KS failure for EGARCH is more diagnostically informative — it suggests the volatility level itself may be miscalibrated, since the model already has flexibility to absorb ordinary fat-tail behavior via its $t_\nu$ shape. A Gaussian model's PIT/KS failure is less conclusive on its own, since it could simply reflect the well-known fact that returns are fatter-tailed than Gaussian, independent of whether the volatility level is right.
+
+### EGARCH
+
+The EGARCH(1,1)-t model \citep{08a920ce-a812-35fd-8f86-d1bf6accbe7f} is parameterized by:
+
+\begin{align}
+r_t &= \mu + \epsilon_t, \quad \epsilon_t = \sigma_t z_t, \quad z_t \overset{\text{i.i.d.}}{\sim} t_\nu(0,1) \\
+\ln\sigma_t^2 &= \omega + \alpha\left(|z_{t-1}| - \mathbb{E}|z_{t-1}|\right) + \gamma z_{t-1} + \beta\ln\sigma_{t-1}^2
+\end{align}
+
+Its key differentiator over other time series models is its ability to capture the leverage effect (the principle that volatility reacts asymmetrically to equal changes in positive and negative returns) through $\gamma$.
+
+It also captures other key properties of volatility (the t-distribution captures fat-tailedness of returns and $\alpha$ captures the effect of sudden large changes in price).
+
+
+
+This recovers the familiar plug-in formula, but reveals why it's only valid in this special case: **constant volatility assumes away exactly the forward-uncertainty problem that makes the general (time-varying) case require forward simulation.** Under constant volatility, there's no distinction between "the model's estimate at time $t$" and "the true expected future variance," since nothing changes going forward. For genuinely time-varying models like EGARCH/PF-SV, this shortcut is not valid — $E[\sigma_{t+i}^2\mid\mathcal{F}_t]$ must instead be estimated via Monte Carlo forward simulation (propagating posterior parameter draws and simulated future shocks through the model's recursion, then averaging $\sigma_{t+i}^2$ across simulated paths), not by directly plugging in a single $\sigma_{t+i}$ value obtained from fitting/smoothing over data beyond time $t$.
+
+### Do the Two Estimators Agree?
+
+Both target the same $\sigma^2$ under the constant-volatility assumption, but via genuinely different statistical arguments: the empirical side relies on the LLN across individual sample observations (needs $h\to\infty$ for consistency, has finite-sample bias corrected via $h-1$); the model side relies on martingale-difference cancellation of cross-terms in a sum (exact for any $h$, given the model specification is correct, no bias correction needed). They estimate the same target, but they are not the same estimator, and their differing denominators ($h-1$ vs. $h$) reflect this: it is not a stylistic inconsistency, but a direct consequence of the different derivations underlying each.
+
+
+Patton's robustness result and empirical demonstration operate at daily granularity — a daily forecast scored against a daily proxy. This project instead applies QLIKE to window-aggregated (21-day RMS) quantities on both sides. This extension is plausible (conditional unbiasedness of the daily proxy should propagate to the window-averaged proxy, since expectation is linear), but it is an assumption carried over from the daily-level theory, not something explicitly proven for the aggregated case in the cited paper.
+
+- **Empirically vaid**: log-realized-volatility is widely documented to be approximately normally distributed, even though volatility itself is skewed (Andersen-Bollerslev-style realized volatility literature; the mechanism behind this regularity is itself debated — see e.g. "Volatility Is Log-Normal, But Not for the Reason You Think" — but the empirical pattern itself is well established across many studies).
+
+- **Rolling average, PF-SV**: $r_t \sim N(0, (\hat\sigma_t^{model})^2)$
+- **EGARCH(1,1)-t**: $r_t \sim t_\nu(0, (\hat\sigma_t^{model})^2)$ (scaled Student-t, $\nu$ fit as part of the model)
+
+
+**Why this test, given RV coverage already exists?**
+- Independent of the RV-side noise correction ($\hat\sigma_\eta$) — operates purely on daily returns and the model's own distributional assumption, no separate proxy-noise model needed.
+- Different sensitivity: RV coverage checks window-level magnitude; PIT/KS checks day-by-day distributional calibration. A model could pass one and fail the other.
+- Doesn't directly test volatility *level* miscalibration in isolation (only distributional shape/timing) → supporting metric, not primary.
+
+**Return coverage**
+- Analogous to RV coverage: % of returns within the model's credible interval, read directly off $u_t$ (e.g. 90% interval violated if $u_t<0.05$ or $u_t>0.95$).
+
+**Caveat: PIT/KS jointly tests two things**
+- Computing $u_t$ requires committing to a specific shape for $F_t$ — this is a separate assumption from whether $\hat\sigma_t^{model}$ itself is correct.
+- A PIT/KS failure can't distinguish: (a) wrong volatility level, vs. (b) wrong innovation shape. Both produce the same symptom (non-uniform $u_t$).
+- Because EGARCH already assumes fatter tails ($t_\nu$), an EGARCH PIT/KS failure is more diagnostically informative — the model already has flexibility to absorb ordinary fat-tail behavior, so a failure more likely points to the volatility level itself. A Gaussian model's (rolling average, PF-SV) failure is less conclusive — it could simply reflect the well-known fact that returns are fatter-tailed than Gaussian, regardless of whether the volatility level is right.
+- ⚠ **To confirm**: verify PF-SV's actual innovation assumption in the implementation (Gaussian assumed above, matching the rolling average's imposed shape) — if it differs, the comparison logic here needs revisiting.
+
+
+
+
+
+## Metrics Overview
+
+Since true volatility is latent (never directly observed, even after the fact), no single test can confirm a model is "correct." Each metric below targets a different practical question a volatility model needs to answer well — collectively, they build up a picture of model quality that no individual test could give alone.
+
+### Historical Volatility Comparison
+**Point of this category**: does the model's volatility *magnitude* track reality at all? Before asking anything more sophisticated, this checks the most basic requirement — a model that gets the overall size of volatility wrong (e.g. consistently predicting calm markets during a crisis) fails at the most fundamental task volatility estimation exists for for.
+
+- **QLIKE (mean loss)**: gives a single number to rank models by magnitude fit, weighted to specifically penalize the costlier kind of mistake — underestimating volatility (the direction of error that actually gets traders hurt, per the project's own motivation).
+- **RV Coverage**: magnitude fit alone isn't enough — a model's *stated confidence* about that magnitude matters too, since traders and risk systems act on the width of the uncertainty, not just the central estimate. This checks whether the model is honest about how sure it should be.
+
+### Return Distribution Calibration
+**Point of this category**: volatility isn't just used as a single number — it's used to build entire risk/return distributions (VaR, option pricing, hedge ratios). A model can have the right *average* volatility while still giving badly wrong day-to-day risk assessments. This category checks whether the model's implied return distribution — the actual object used for real decisions — is trustworthy on a daily basis, not just on average.
+
+- **PIT/KS**: the direct test of whether the model's day-by-day claimed uncertainty matches what actually happens — this is the calibration property that any practical use of the model (sizing a position, pricing a tail-risk hedge) implicitly relies on.
+- KS test / histogram: the formal and visual versions of this same check.
+
+### Serial Dependence Diagnostics (ACF-based)
+**Point of this category**: a model can look well-calibrated *on average* while still having systematic, exploitable patterns in *when* it fails — and these patterns matter economically, since they concentrate model risk exactly when it's most costly (crises, trending markets) rather than spreading it out harmlessly. This category asks not "is the model right on average" but "are the model's mistakes predictable" — a model with predictable mistakes is arguably more dangerous than one with larger but random ones, since predictable errors can be systematically exploited or can compound at exactly the wrong moment.
+
+- **ACF of $z_t$**: are miscalibration errors predictable in *direction* over time?
+- **ACF of $z_t^2$**: are miscalibration errors predictable in *magnitude/clustering* over time — i.e., does the model fail to adapt fast enough to genuine regime changes?
+- **Engle-Ng sign-bias test**: does the model's error depend on the *direction* of the previous day's return — directly testing whether it captures the leverage effect that's central to why EGARCH exists in the first place, and central to the "hedge based on volatility direction" use case from the project's own motivation.
+
+## Metrics Overview
+
+### Historical Volatility Comparison
+Checks similarity between model and empirical volatility estimates across a window.
+
+- **QLIKE (mean loss)**: single aggregate number summarizing model-vs-empirical fit, with built-in asymmetric penalty for underprediction.
+- **RV Coverage**: directly checks whether empirical coverage matches expected model coverage at various credible-interval levels (50%, 90%, 95%, etc.), after adjusting for the benchmark's own known estimation noise (log-normal correction).
+
+### Return Distribution Calibration
+Checks whether the model's *day-by-day* distributional assumption is well-calibrated.
+
+- **PIT/KS**: tests whether $u_t=F_t(r_t)$ is uniformly distributed — jointly checks volatility level and assumed innovation shape (can't separate the two from this test alone).
+  - KS test: formal test statistic for uniformity of $\{u_t\}$.
+  - Histogram/empirical CDF: visual diagnostic for the same.
+
+### Serial Dependence Diagnostics (ACF-based)
+Checks whether calibration errors are independent over time — a dimension pooled PIT/KS cannot detect on its own. All computed on $z_t=\Phi^{-1}(u_t)$.
+
+- **ACF of $z_t$ (level, Ljung-Box)**: tests for *directional* persistence in calibration errors (e.g. systematic runs of under/overestimation).
+- **ACF of $z_t^2$ (squared, ARCH-LM style)**: tests for leftover *volatility clustering* the model failed to capture.
+- **Engle-Ng sign-bias test**: regress $z_t^2$ on $\text{sign}(r_{t-1})$ (and interaction terms with $r_{t-1}$ itself) — directly tests for *leverage/asymmetry* miscalibration, i.e. whether calibration errors depend systematically on the sign of the previous return. This is the concrete implementation of the leverage-testing gap discussed earlier, and follows the same regression-based logic as the ACF checks above.
+- **Cross-correlation of $z_t^2$ with lagged $|r_{t-1}|$ or $r_{t-1}^2$**: checks whether error magnitude relates to the *size* (not just sign) of recent shocks — a complementary check to the ARCH-LM-style test above, at a finer level of detail.

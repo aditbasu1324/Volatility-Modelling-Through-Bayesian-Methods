@@ -181,8 +181,6 @@ $$
 
 **Why QLIKE?**
 
-- **Why QLIKE?**
-
 - **Asymmetric penalty for underprediction**: for *any* proportional miss, underpredicting volatility by a factor $k$ incurs strictly more loss than overpredicting by the same factor $k$ (verified directly from the loss function: $\text{Loss}_{\text{under}}(k) - \text{Loss}_{\text{over}}(k) = k^2 - 1/k^2 - 4\log k > 0$ for all $k>1$).
   - Underestimating volatility is generally more costly in practice (risk management, option pricing) — this asymmetry reflects that.
 - **Robust to a noisy proxy**: true volatility is unobservable, so evaluation must use a noisy proxy ($RV_t$) instead. QLIKE remains valid under this — model rankings match what they'd be under the true (unobservable) volatility (Patton, 2011).
@@ -212,19 +210,38 @@ where $F_t$ is the model's estimated CDF of returns at time $t$ (derived from $\
 
 ## Serial Dependence Diagnostics
 
-**Why this category is needed**
+KS checks whether the *pooled* $\{u_t\}$ values collectively resemble a Uniform(0,1) sample — but says nothing about whether consecutive $u_t$ are independent of each other. A model could have $u_t$ clustered near 1 during genuine high-volatility stretches (underestimating $\sigma_t$) and clustered near 0.5 during calm stretches (overestimating $\sigma_t$) — a real, time-varying miscalibration pattern — while these regimes balance out such that the pooled distribution still looks uniform overall.
 
-KS checks whether the *pooled* $\{u_t\}$ values collectively resemble a Uniform(0,1) sample — but says nothing about whether consecutive $u_t$ are independent of each other. A model could have $u_t$ clustered near 1 during genuine high-volatility stretches (underestimating $\sigma_t$) and clustered near 0.5 during calm stretches (overestimating $\sigma_t$) — a real, time-varying miscalibration pattern — while these regimes balance out such that the *pooled* distribution still looks uniform overall. This kind of volatility-clustering mismatch is a plausible failure mode for both EGARCH and PF-SV, and is invisible to KS alone.
+To catch this, $u_t$ is transformed via $z_t = \Phi^{-1}(u_t)$, which should be iid $N(0,1)$ under correct calibration — this puts the calibration errors on a scale where standard time-series diagnostics apply directly. Three tests are run on $z_t$ to check whether the model has correctly captured volatility clustering, volatility persistence, and the leverage effect.
 
-**Method**
+### ACF of $z_t$ (Ljung-Box) — directional persistence
 
-Transform $u_t$ via $z_t = \Phi^{-1}(u_t)$ (should be iid $N(0,1)$ under correct calibration), then test:
+The sample autocorrelation of $z_t$ at lag $j$ is:
+$$\hat\rho_j = \frac{\sum_{t=j+1}^{n}(z_t-\bar z)(z_{t-j}-\bar z)}{\sum_{t=1}^n(z_t-\bar z)^2}$$
 
-- **ACF of $z_t$ (Ljung-Box)** — directional serial dependence in calibration errors.
-- **ACF of $z_t^2$ (Ljung-Box, ARCH-LM style)** — leftover volatility clustering the model failed to capture.
-- **Engle-Ng sign-bias test** — regress $z_t^2$ on $\text{sign}(r_{t-1})$ (and interaction terms) — tests whether calibration errors depend on the *direction* of the previous return, i.e. whether the leverage effect is correctly captured.
+The Ljung-Box statistic jointly tests whether $\rho_1,...,\rho_k$ are all zero:
+$$Q(k) = n(n+2)\sum_{j=1}^{k}\frac{\hat\rho_j^2}{n-j} \ \sim\ \chi^2_k \text{ under the null}$$
 
-A significant result on any of these indicates systematic, time-varying miscalibration that the pooled KS test cannot detect.
+**Null hypothesis**: $\rho_1=...=\rho_k=0$ (no directional serial dependence in calibration errors). A **high p-value** means the null is not rejected — consecutive $z_t$'s look independent, i.e. no evidence of directional persistence (errors don't systematically "run" in the same direction from one day to the next). A **low p-value** indicates the model's errors are directionally predictable — e.g. a day of underestimation tends to be followed by more underestimation.
+
+### ACF of $z_t^2$ (Ljung-Box, ARCH-LM style) — volatility clustering
+
+Identical test, applied to $z_t^2$ instead of $z_t$ — squaring removes sign, so this tests whether the *magnitude* of calibration errors clusters over time, regardless of direction.
+
+**Null hypothesis**: no autocorrelation in $z_t^2$ up to lag $k$. A **high p-value** indicates the model has successfully captured the true volatility clustering present in the data — its errors show no leftover clustering, meaning the model adapts to regime changes fast enough that its mistakes don't bunch up. A **low p-value** indicates leftover clustering: large errors follow large errors, meaning the model isn't adapting quickly enough to genuine shifts in volatility (a persistence failure).
+
+### Engle-Ng Sign-Bias Test — leverage effect
+
+Regress squared calibration error on the sign of the previous day's return:
+$$z_t^2 = \beta_0 + \beta_1 \cdot \text{sign}(r_{t-1}) + \epsilon_t$$
+
+Since $\text{sign}(r_{t-1})\in\{-1,+1\}$: predicted squared error after a down day is $\beta_0-\beta_1$; after an up day, $\beta_0+\beta_1$.
+
+**Null hypothesis**: $\beta_1=0$ — squared calibration error does not depend on the direction of the prior return. A **significant, nonzero $\beta_1$** indicates the model's errors are asymmetric with respect to return direction — most commonly, larger errors following negative returns ($\beta_1<0$), consistent with the model failing to capture the leverage effect (negative returns should raise subsequent volatility more than positive returns of equal size; a model blind to this shows larger miscalibration specifically after down days).
+
+(Extended versions of this test — negative size bias and positive size bias, using $r_{t-1}\cdot\mathbb{1}[r_{t-1}<0]$ and $r_{t-1}\cdot\mathbb{1}[r_{t-1}>0]$ as additional regressors — test whether the *magnitude*, not just the sign, of the prior return matters.)
+
+A significant result on any of these three tests indicates systematic, time-varying miscalibration that the pooled KS test cannot detect.
 
 ### Why Regression Testing?
 

@@ -6,7 +6,6 @@ The goal of the project was to model volatility using Bayesian Methods.
 
 This section contains the original work submitted, but this project will be improved upon and the errors found will be listed below. 
 
-
 Conceptual Error:
 
 Realized volatility (needed to account for difference in computing this for baseline as opposed to standard model (used RMS everywhere))
