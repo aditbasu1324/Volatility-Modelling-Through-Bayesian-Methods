@@ -2,18 +2,6 @@
 
 This file details the procedure used for the project
 
-There are 3 sets of data that need to be extracted from Yahoo Finance.
-
-2013 - 2017 for developing priors
-
-2018 - 2021 for testing whether models under regression conditions
-
-2022 - 2025 for testing whether models under sequential updating
-
-After that, regression testing and sequential updating is required.
-
-## Data Periods
-
 The project splits SPY data into three periods, each serving a distinct methodological role:
 
 | Period | Date Range | Purpose |
@@ -24,15 +12,41 @@ The project splits SPY data into three periods, each serving a distinct methodol
 
 3 models will be tested, a baseline rolling average, a time series model and a stochastic model.
 
-Note that each model will be developed and then tested on both regression and sequential data. At the end of this notebook, the models will be compared to each other
+Note that each model will be developed and then tested on both regression and sequential data. At the end of this notebook, the models will be compared to each other.
 
-The model's effectiveness is tested using different metrics like QLIKE, Realized Volatility Coverage, PIT Histogram and Return Coverage. 
+The model's effectiveness is tested using different metrics that are listed below:
+Bullet point lists of just the label of the metrics
+
+## Metrics Overview
+
+The different metrics used and their purposes are listed below.
+
+### Historical Volatility Comparison
+**Point**: check how closely the model's volatility matches reality across a window.
+
+- **QLIKE (mean loss)**: mean pointwise loss, weighted to penalize underestimating volatility more heavily (generally more costly than overestimating).
+- **RV Coverage**: checks if the model's stated confidence intervals actually contain the empirical value at the expected rate.
+
+### Return Distribution Calibration
+**Point**: checks if the model's implied return distribution matches the actual return distribution — a day-by-day test, independent of the window-level comparison above and of the noise correction used in RV coverage.
+
+- **PIT/KS**: tests whether the model's day-by-day claimed uncertainty matches what actually happens (jointly tests volatility level and assumed shape — can't separate the two)
+- KS test / histogram: formal and visual versions of the same check.
+
+### Serial Dependence Diagnostics
+**Point**: checks if the model's errors are predictable over time — a model can be right on average while still failing in a systematic, exploitable pattern.
+
+- **ACF of $z_t$**: tests for directional persistence in errors.
+- **ACF of $z_t^2$**: tests for volatility-clustering persistence in errors.
+- **Engle-Ng sign-bias test**: tests if errors depend on the sign of the previous return (leverage effect).
 
 ## Regression Conditions
 
 Priors developed on 2013–2017 data are updated using 2018–2021 data to obtain posterior samples for model parameters.
 
 This is an in-sample test: the fitted parameters are propagated forward through the regression-period data itself to obtain implied volatility paths.
+
+**COVID breakdown**: since the regression period (2018–2021) contains the COVID-19 volatility shock, all metrics are additionally reported split into pre-COVID, COVID, and post-COVID sub-periods (2020-01-30 to 2020-04-30), in addition to their pooled values. This checks how quickly and how well each model adapted to a genuine, rapid regime shift — a pooled, whole-period average can mask sub-period miscalibration (see theoretical.md).
 
 ## Sequential Updating
 
@@ -42,39 +56,18 @@ In each window:
 1. Volatility is forecast using the previous window's posterior samples
 2. The posterior is then updated by treating the previous window's posterior as the new prior (via fitting posterior samples to the original prior distributions), conditioned on the current window's data
 
+**Window breakdown**: since the sequential period contains no single comparable crisis event, results are instead broken down into 8 fixed six-month windows spanning 2022–2025, in addition to pooled values — the same rationale as the COVID breakdown above, applied as a general-purpose decomposition (see theoretical.md).
+
 ## Baseline: Rolling Average
 
 The rolling average is used as a naive baseline for comparison against the Bayesian models. It has no parameters and is not itself Bayesian — see theoretical.md for its definition and the implications of this.
 
-Below, the metrics used to evaluate the models are explained.
+## Time Series Model: EGARCH(1,1)-t
 
-## Historical Volatility (Benchmark)
+A Bayesian EGARCH(1,1) model with Student-t innovations, capturing the leverage effect and fat-tailed returns. See theoretical.md for the full parameterization and justification.
 
-Historical volatility — the 21-day rolling standard deviation of log returns — serves as the empirical benchmark against which all three models' volatility estimates are evaluated. See theoretical.md for its definition, derivation, and the assumptions it relies on.
+This model was chosen after AIC/BIC comparison with other time series models (the prior data was fit to the model)
 
-### What is QLIKE?
+Then the priors were developed using prior predictive checking and information obtained from fitting the prior data to the model.
 
-The QLIKE loss compares pointwise estimates of model volatility against realized volatility.
-
-\begin{equation*}
-    \text{QLIKE}(\hat{\sigma}_t, RV_t) = \frac{RV_t^2}{\hat{\sigma}_t^2} 
-    - \log\!\left(\frac{RV_t^2}{\hat{\sigma}_t^2}\right) - 1
-\end{equation*}
-
-### Realized Volatility Coverage
-
-$\hat\sigma_t^{empirical}$ (derived from actual realized volatility) is compared to $\hat\sigma_t^{model}$ (the model's estimate). The noise model is log-normal:
-
-$$\hat\sigma_t^{empirical} = \sigma_t^{true} \cdot \exp(\eta_t), \quad \eta_t \sim N(0, \sigma_\eta^2)$$
-
-The noise estimate is computed as:
-
-$$\hat\sigma_\eta = \text{std}\left(\log \hat\sigma_t^{empirical} - \log \hat\sigma_t^{model}\right)$$
-
-Realized volatility coverage is the percentage of actual realized volatility estimates falling within the model's Bayesian credible intervals.
-
-### Return Calibration Test (PIT)
-
-Actual returns are compared to the model's estimated return distribution via the Probability Integral Transform (Diebold et al., 1997). The fraction of the model's estimated return distribution lying below the actual return at each $t$ should be uniformly distributed across the period. Uniformity is tested via the Kolmogorov-Smirnov test (Massey, 1951); $p < 0.05$ indicates poor calibration.
-
-Return coverage can also be computed across different credible interval widths, analogous to RV coverage.
+Then the posterior samples are obtained via NUTS/MCMC.

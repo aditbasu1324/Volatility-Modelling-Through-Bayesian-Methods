@@ -21,7 +21,6 @@ Before introducing specific metrics, it's worth stating the empirical properties
 
 Each metric below is designed to test whether a model has correctly captured one or more of these properties — not as an arbitrary battery of statistical procedures, but as a direct check against the known empirical structure of real markets.
 
-
 ## Metrics Overview
 
 The different metrics used and their purposes are listed below.
@@ -45,203 +44,7 @@ The different metrics used and their purposes are listed below.
 - **ACF of $z_t^2$**: tests for volatility-clustering persistence in errors.
 - **Engle-Ng sign-bias test**: tests if errors depend on the sign of the previous return (leverage effect).
 
-## Historical Volatility (Benchmark)
-
-### The Goal
-
-Under the assumption that volatility is constant within the window, conditional on $\mathcal{F}_t$ ($\sigma_{t+i} = \sigma$ for all $i=1,...,h$, given information up to time $t$), the target quantity is:
-$$\text{Var}(r_{t+1}, ..., r_{t+h} \mid \mathcal{F}_t) = \sigma^2$$
-
-Two different estimators of this same quantity are constructed — one from the raw returns directly (empirical side), one from the model's own outputs (model side) — and compared.
-
-### Empirical Estimator (via LLN)
-
-$$
-\hat{\sigma}_t^{empirical} = \sqrt{\frac{1}{h-1}\sum_{i=1}^{h}(r_{t+i} - \bar{r}_t)^2}
-$$
-
-where $r_{t}=\ln\left(\frac{P_{t}}{P_{t-1}}\right)$, $\bar{r}_t = \frac{1}{h}\sum_{i=1}^{h} r_{t+i}$, $h=21$.
-
-Conditional on $\mathcal{F}_t$, each $r_{t+i}$ is treated as an independent draw from a common distribution with variance $\sigma^2$ (and mean $\mu$).
-
-By the Law of Large Numbers, the sample variance converges to $\sigma^2$ as $h\to\infty$. The $h-1$ denominator (Bessel's correction) corrects for the fact that the mean $\mu$ is itself estimated by $\bar r_t$ from the same $h$ observations.
-
-### Model Estimator (via Martingale-Difference Sum)
-
-All the models specifiy $r_{t+i} = \mu + \sigma_{t+i}\varepsilon_{t+i}$, with $\varepsilon_{t+i}$ iid mean-zero, and $\sigma_{t+i}=\text{Var}(r_{t+i}\mid \mathcal{F}_{t+i-1})$. Only $\sigma_{t+1}$ is $\mathcal{F}_t$-measurable (known at time $t$); for $i>1$, $\sigma_{t+i}$ is itself a random variable from the perspective of $\mathcal{F}_t$, since it depends on interim returns not yet realized at time $t$.
-
-**Goal**: derive $\text{Var}\left(\sum_{i=1}^h r_{t+i}\,\middle|\,\mathcal{F}_t\right)$.
-
-**Cross-terms vanish**
-
-For $i<j$, conditioning throughout on $\mathcal{F}_t$ and using the tower property:
-$$E[r_{t+i}\,r_{t+j}\mid\mathcal{F}_t] = E\Big[r_{t+i}\cdot E[r_{t+j}\mid\mathcal{F}_{t+j-1}]\,\Big|\,\mathcal{F}_t\Big] = E[r_{t+i}\cdot\mu\mid\mathcal{F}_t] = \mu\,E[r_{t+i}\mid\mathcal{F}_t]$$
-Since $E[r_{t+i}\mid\mathcal{F}_t]\cdot E[r_{t+j}\mid\mathcal{F}_t] = E[r_{t+i}\mid\mathcal{F}_t]\cdot\mu$ as well (as $E[r_{t+j}\mid\mathcal{F}_t]=\mu$ by tower), the covariance is exactly zero:
-$$\text{Cov}(r_{t+i},r_{t+j}\mid\mathcal{F}_t)=0$$
-
-**Diagonal terms**
-
-By the law of total variance, conditioning on the intermediate filtration $\mathcal{F}_{t+i-1}$:
-$$\text{Var}(r_{t+i}\mid\mathcal{F}_t) = \underbrace{E\big[\text{Var}(r_{t+i}\mid\mathcal{F}_{t+i-1})\mid\mathcal{F}_t\big]}_{E[\sigma_{t+i}^2\mid\mathcal{F}_t]} + \underbrace{\text{Var}\big(E[r_{t+i}\mid\mathcal{F}_{t+i-1}]\mid\mathcal{F}_t\big)}_{\text{Var}(\mu\mid\mathcal{F}_t)\,=\,0}$$
-
-So:
-$$\text{Var}(r_{t+i}\mid\mathcal{F}_t) = E[\sigma_{t+i}^2\mid\mathcal{F}_t]$$
-
-**Putting it together**
-
-$$\text{Var}\left(\sum_{i=1}^h r_{t+i}\,\middle|\,\mathcal{F}_t\right) = \sum_{i=1}^h E[\sigma_{t+i}^2\mid\mathcal{F}_t]$$
-
-### Applying Constant-Volatility Assumption 
-
-If volatility is assumed constant across the window ($\sigma_{t+i}=\sigma$ for all $i$, given $\mathcal{F}_t$), then trivially:
-$$E[\sigma_{t+i}^2\mid\mathcal{F}_t] = E[\sigma^2\mid\mathcal{F}_t] = \sigma^2$$
-
-Substituting into the general result above:
-$$\text{Var}\left(\sum_{i=1}^h r_{t+i}\,\middle|\,\mathcal{F}_t\right) = \sum_{i=1}^h \sigma^2 = h\sigma^2$$
-
-Rearranging:
-$$\sigma^2 = \frac{1}{h}\sum_{i=1}^h E[\sigma_{t+i}^2\mid\mathcal{F}_t]$$ (make this the expectation formula instead)
-
-Note that $\sigma_{t+i}$ is different from $E[\sigma_{t+i}^2\mid\mathcal{F}_t]$ which will be addressed during the implementation
-
-### Sources of Error
-
-Even under a correctly specified model, $\hat\sigma_t^{empirical}$ and $\hat\sigma_t^{model}$ are not expected to match exactly:
-
-1. **Systematic estimation error** — $\hat\sigma_t^{empirical}$ is a finite-sample estimator (LLN gives convergence only as $h\to\infty$; at $h=21$ it carries residual sampling variance regardless of model correctness).
-2. **Genuine model error** — the model's own misspecification or approximation error.
-
-A fair comparison requires factoring source 1 into the model side too, via a log-normal noise model.
-
-**Note**
-Patton's original paper compared metrics through daily forecasts scored against daily proxy, whereas this project applies the QLIKE to the window-aggregated quantities on both side. This extension isn't explicity proven but makes sense through the linearity of expectation and is widely used.
-
-## Historical Volatility Coverage: Log-Normal Measurement Error
-
-(needs to be checked for later)
-### The Noise Model
-
-$$\hat\sigma_t^{empirical} = \sigma_t^{true} \cdot \exp(\eta_t), \quad \eta_t \sim N(0,\sigma_\eta^2)$$
-
-$$\hat\sigma_\eta = \text{std}\left(\log\hat\sigma_t^{empirical} - \log\hat\sigma_t^{model}\right)$$
-
-### Why Log-Normal Noise?
-
-- **Empirically valid**: log-historically-volatility is widely documented to be approximately normally distributed through empirical testing across several studies (paper's talking about the same "Volatility Is Log-Normal, But Not for the Reason You Think")
-- **Positivity**: multiplicative noise ($\times\exp(\eta_t)$) keeps $\hat\sigma_t^{empirical}$ strictly positive, unlike additive Gaussian noise which could push it negative.
-- **Tractability**: reduces to a single scalar parameter ($\sigma_\eta$), directly estimable and easy to combine with the model's own posterior on the log scale.
-- This is a **pragmatic, standard convention**, not a theoretically mandated choice — more flexible alternatives (gamma, non-central chi-squared) exist but add complexity without strong evidence they're needed here.
-
-### What $\hat\sigma_\eta$ Is Meant to Represent
-
-$\eta_t$ is meant to isolate the estimation noise in $\hat\sigma_t^{empirical}$ alone — how far the empirical historical-volatility estimate deviates from the true (unobservable) $\sigma_t^{true}$, purely due to using a finite 21-day sample (see Sources of Error, historical volatility section above).
-
-### Why the Formula Uses $\hat\sigma_t^{model}$ Instead of $\sigma_t^{true}$
-
-$\sigma_t^{true}$ is never observable, so there is no way to compute $\eta_t$ directly. $\hat\sigma_t^{model}$ is substituted in as the best available stand-in — this is a forced practical necessity, not an independently justified choice.
-
-### What $\hat\sigma_\eta$ Actually Estimates (Given This Substitution)
-
-Writing $\hat\sigma_t^{model} = \sigma_t^{true}\cdot\exp(\epsilon_t^{model})$ for the model's own (not necessarily Gaussian) error:
-
-$$\log\hat\sigma_t^{empirical} - \log\hat\sigma_t^{model} = \eta_t - \epsilon_t^{model}$$
-
-($\log\sigma_t^{true}$ cancels exactly.) Assuming $\eta_t$ and $\epsilon_t^{model}$ are independent:
-
-$$\hat\sigma_\eta^2 \approx \sigma_\eta^2 + \text{Var}(\epsilon_t^{model})$$
-
-So the computed $\hat\sigma_\eta$ is an estimate of the **combined** spread of benchmark noise and model error — not benchmark noise alone. There is no way, from this single computable quantity, to separate the two contributions.
-
-### Sources of Error This Is (and Isn't) Correcting For
-
-- **Corrects for**: the systematic estimation error inherent in $\hat\sigma_t^{empirical}$ (Sources of Error, point 1) — widening the model's credible interval by $\hat\sigma_\eta$ prevents this benchmark noise from being mistaken for model miscalibration.
-- **Does not cleanly separate from**: genuine model error (Sources of Error, point 2) — since $\hat\sigma_\eta$ is contaminated by $\text{Var}(\epsilon_t^{model})$, the correction is only accurate to the extent that model error is small relative to true benchmark noise.
-- **Assumes**: $\eta_t \perp \epsilon_t^{model}$ (independence) — plausible but unverified; if both errors grow together during volatile periods (a reasonable concern), this assumption breaks down and $\hat\sigma_\eta$ may over- or under-estimate the combined variance depending on their correlation's sign.
-
-(Probably a way to check that assumption)
-
-### Does Adding more Data help?
-
-Yes — $\sigma_\eta$ reflects how imprecise $\hat\sigma_t^{empirical}$ is, which is a direct consequence of the 21-day historical volatility construction relying on LLN over only 21 daily observations. A benchmark built from intraday data (day-level RV via quadratic variation, aggregating many high-frequency returns per day — see terminology note above) would be substantially more precise, shrinking $\sigma_\eta$ and making a larger share of $\hat\sigma_\eta$ attributable to genuine model error rather than benchmark imprecision — sharpening the coverage test's diagnostic power. This is a concrete motivation for the intraday data extension discussed in extensions.md.
-
-### Is This Circular?
-
-- **Regression setting**: $\hat\sigma_\eta$ is fit once, globally, over the whole regression period — not tuned per-window to that window's own outcome, so coverage can't be trivially gamed this way.
-- **Sequential setting**: no ambiguity — $\hat\sigma_\eta$ is computed only from data prior to each window being evaluated, genuinely out-of-sample.
-
-## QLIKE Loss
-
-$$
-    \text{QLIKE}(\hat{\sigma}_t, RV_t) = \frac{RV_t^2}{\hat{\sigma}_t^2} 
-    - \log\!\left(\frac{RV_t^2}{\hat{\sigma}_t^2}\right) - 1
-$$
-
-- Compares pointwise model volatility estimates against historical volatility.
-- Lower mean QLIKE = better fit.
-
-**Why QLIKE?**
-
-- **Asymmetric penalty for underprediction**: for *any* proportional miss, underpredicting volatility by a factor $k$ incurs strictly more loss than overpredicting by the same factor $k$ (verified directly from the loss function: $\text{Loss}_{\text{under}}(k) - \text{Loss}_{\text{over}}(k) = k^2 - 1/k^2 - 4\log k > 0$ for all $k>1$).
-  - Underestimating volatility is generally more costly in practice (risk management, option pricing) — this asymmetry reflects that.
-- **Robust to a noisy proxy**: true volatility is unobservable, so evaluation must use a noisy proxy ($RV_t$) instead. QLIKE remains valid under this — model rankings match what they'd be under the true (unobservable) volatility (Patton, 2011).
-  - This is the main reason QLIKE (not MSE) is standard here: it directly addresses the systematic estimation error in $RV_t$ (see Sources of Error, above) rather than being distorted by it.
-
-## Realized Volatility Coverage
-
-$$\hat\sigma_t^{empirical} = \sigma_t^{true} \cdot \exp(\eta_t), \quad \eta_t \sim N(0,\sigma_\eta^2)$$
-
-$$\hat\sigma_\eta = \text{std}\left(\log \hat\sigma_t^{empirical} - \log \hat\sigma_t^{model}\right)$$
-
-- Coverage = % of $\hat\sigma_t^{empirical}$ values falling within the model's credible interval for $\hat\sigma_t^{model}$, widened using $\hat\sigma_\eta$.
-
-## Return Calibration Test (PIT / KS)
-
-$$u_t = F_t(r_t)$$
-
-where $F_t$ is the model's estimated CDF of returns at time $t$ (derived from $\hat\sigma_t^{model}$), and $r_t$ is the actual observed return. $u_t$ = the fraction of the model's estimated return distribution lying below the actual return.
-
-**Why does this work? (PIT theorem)**
-- If $r_t$ truly follows $F_t$, then $u_t=F_t(r_t) \sim \text{Uniform}(0,1)$ — a general, distribution-free probability result.
-- Intuition: $F_t$ maps outcomes to their own percentile. If the model is exactly correct, the actual return is equally likely to land at any percentile — 10% of returns fall in the bottom decile, 5% in the top 5%, etc. This is what "well-calibrated" means.
-- Testable implication: compute $u_t$ across all $t$, check whether they look uniform. Too many $u_t$ near 0/1 → intervals too narrow (miscalibrated, underestimating tail risk).
-
-**Testing uniformity: KS test**
-- Compares empirical CDF of $\{u_t\}$ against Uniform(0,1) (Massey, 1951). $p<0.05$ → not well calibrated.
-
-## Serial Dependence Diagnostics
-
-KS checks whether the *pooled* $\{u_t\}$ values collectively resemble a Uniform(0,1) sample — but says nothing about whether consecutive $u_t$ are independent of each other. A model could have $u_t$ clustered near 1 during genuine high-volatility stretches (underestimating $\sigma_t$) and clustered near 0.5 during calm stretches (overestimating $\sigma_t$) — a real, time-varying miscalibration pattern — while these regimes balance out such that the pooled distribution still looks uniform overall.
-
-To catch this, $u_t$ is transformed via $z_t = \Phi^{-1}(u_t)$, which should be iid $N(0,1)$ under correct calibration — this puts the calibration errors on a scale where standard time-series diagnostics apply directly. Three tests are run on $z_t$ to check whether the model has correctly captured volatility clustering, volatility persistence, and the leverage effect.
-
-### ACF of $z_t$ (Ljung-Box) — directional persistence
-
-The sample autocorrelation of $z_t$ at lag $j$ is:
-$$\hat\rho_j = \frac{\sum_{t=j+1}^{n}(z_t-\bar z)(z_{t-j}-\bar z)}{\sum_{t=1}^n(z_t-\bar z)^2}$$
-
-The Ljung-Box statistic jointly tests whether $\rho_1,...,\rho_k$ are all zero:
-$$Q(k) = n(n+2)\sum_{j=1}^{k}\frac{\hat\rho_j^2}{n-j} \ \sim\ \chi^2_k \text{ under the null}$$
-
-**Null hypothesis**: $\rho_1=...=\rho_k=0$ (no directional serial dependence in calibration errors). A **high p-value** means the null is not rejected — consecutive $z_t$'s look independent, i.e. no evidence of directional persistence (errors don't systematically "run" in the same direction from one day to the next). A **low p-value** indicates the model's errors are directionally predictable — e.g. a day of underestimation tends to be followed by more underestimation.
-
-### ACF of $z_t^2$ (Ljung-Box, ARCH-LM style) — volatility clustering
-
-Identical test, applied to $z_t^2$ instead of $z_t$ — squaring removes sign, so this tests whether the *magnitude* of calibration errors clusters over time, regardless of direction.
-
-**Null hypothesis**: no autocorrelation in $z_t^2$ up to lag $k$. A **high p-value** indicates the model has successfully captured the true volatility clustering present in the data — its errors show no leftover clustering, meaning the model adapts to regime changes fast enough that its mistakes don't bunch up. A **low p-value** indicates leftover clustering: large errors follow large errors, meaning the model isn't adapting quickly enough to genuine shifts in volatility (a persistence failure).
-
-### Engle-Ng Sign-Bias Test — leverage effect
-
-Regress squared calibration error on the sign of the previous day's return:
-$$z_t^2 = \beta_0 + \beta_1 \cdot \text{sign}(r_{t-1}) + \epsilon_t$$
-
-Since $\text{sign}(r_{t-1})\in\{-1,+1\}$: predicted squared error after a down day is $\beta_0-\beta_1$; after an up day, $\beta_0+\beta_1$.
-
-**Null hypothesis**: $\beta_1=0$ — squared calibration error does not depend on the direction of the prior return. A **significant, nonzero $\beta_1$** indicates the model's errors are asymmetric with respect to return direction — most commonly, larger errors following negative returns ($\beta_1<0$), consistent with the model failing to capture the leverage effect (negative returns should raise subsequent volatility more than positive returns of equal size; a model blind to this shows larger miscalibration specifically after down days).
-
-(Extended versions of this test — negative size bias and positive size bias, using $r_{t-1}\cdot\mathbb{1}[r_{t-1}<0]$ and $r_{t-1}\cdot\mathbb{1}[r_{t-1}>0]$ as additional regressors — test whether the *magnitude*, not just the sign, of the prior return matters.)
-
-A significant result on any of these three tests indicates systematic, time-varying miscalibration that the pooled KS test cannot detect.
+These metrics are covered in more detail in the metrics.md section
 
 ### Why Regression Testing?
 
@@ -282,9 +85,137 @@ Unlike EGARCH/SV, the "volatility equation" is a fixed, deterministic window fun
 
 ### Applying the Metrics to the Baseline
 
+The following applies to both the regression and sequential settings, unless noted otherwise below.
+
 - **QLIKE**: applies directly to $\hat\sigma_t^{roll}$ vs $\hat\sigma_t^{empirical}$ — no distributional assumption needed.
 - **RV Coverage**: no native posterior, so the interval is constructed entirely from the log-normal noise model ($\hat\sigma_\eta^{roll}$, fit the same way as for the Bayesian models, substituting $\hat\sigma_t^{roll}$ for $\hat\sigma_t^{model}$). Unlike EGARCH/PF-SV, this noise-model interval is the *sole* source of interval width — there is no posterior uncertainty to combine it with.
 - **PIT/KS**: requires an externally imposed distributional shape, since the baseline gives only a point estimate. $r_t \sim N(0,(\hat\sigma_t^{roll})^2)$ is assumed — matching PF-SV's Gaussian innovation assumption, so PIT/KS results between baseline and PF-SV test the same joint hypothesis (see PIT/KS caveat).
 - **ACF diagnostics / Engle-Ng**: computed identically to the other models, using $z_t=\Phi^{-1}(u_t)$ from the baseline's own PIT transform above.
 
+#### Regression Setting
 
+$\hat\sigma_\eta^{roll}$ is fit once, globally, over the whole regression period. Results (QLIKE, RV coverage) are additionally broken down into pre-COVID, COVID, and post-COVID sub-periods, since COVID falls within this period and a pooled average can mask sub-period miscalibration.
+
+#### Sequential Setting
+
+Two considerations arise that don't apply to the regression setting:
+
+**Window-by-window breakdown, not COVID sub-periods**: the sequential period (2022–2025) contains no comparable single crisis event, so results are instead broken down into eight fixed six-month windows spanning the full period, in addition to pooled values — the same rationale as the COVID breakdown, applied as a general-purpose decomposition rather than one tied to a specific known event.
+
+**$\hat\sigma_\eta$ must be estimated sequentially, not fit once globally**: using one global $\hat\sigma_\eta$ for the entire sequential period would violate the out-of-sample principle underlying sequential updating — the noise estimate for an early window would be silently informed by residuals from windows that haven't happened yet. $\hat\sigma_\eta$ is instead computed as an expanding, past-only estimate: the first sequential window uses $\hat\sigma_\eta$ carried forward from the regression period; each subsequent window's $\hat\sigma_\eta$ is recomputed using all residuals accumulated from the regression period plus every *completed* sequential window — never including the window currently being evaluated. This expanding-window convention was chosen (over a fixed rolling window or exponential smoothing) for being parameter-free, avoiding an arbitrary window length or decay rate.
+
+This affects RV coverage only — $\hat\sigma_\eta$ has no role in the models' own fitting/forecasting process (EGARCH's MCMC recursion, PF-SV's particle filtering, or the baseline's point estimate); it is purely a post-hoc correction applied when checking the model's output against the empirical benchmark.
+
+QLIKE, PIT/KS, and ACF/Engle-Ng diagnostics are otherwise unchanged from the regression setting — these operate per-day (or per-window as a simple aggregation of per-day values) and involve no noise-model fitting of their own.
+
+## Priors
+
+## Priors
+
+Before covering EGARCH and SV individually, it's worth establishing the concept and purpose of priors more generally.
+
+Priors are required for Bayesian models, since priors combined with the likelihood of new data are what generate posteriors.
+
+Theoretically, priors shouldn't matter much once enough data is available — the likelihood should dominate. In practice, however, these complex models require reasonably informative priors for the numerical methods (MCMC/NUTS) to converge well.
+
+Priors must also respect the model's **stationarity conditions**, otherwise the model isn't theoretically valid for prediction. Stationarity means the model is stable — that a well-defined long-run variance $\sigma_\infty^2$ exists.
+
+Priors are validated through **prior predictive checking** — simulating data from the prior alone and checking it looks plausible given the actual data being modeled.
+
+## Prior Predictive Checking
+
+### What It Checks
+
+Before conditioning on any real data, a prior predictive check asks: **if only the prior were true, what range of outcomes would the model expect to see?** This is done by simulating many complete synthetic datasets purely from draws of the prior distribution, then comparing the resulting simulated data against the actual observed data.
+
+This is a check on the prior *alone* — no posterior or fitting is involved. If real, observed data falls far outside the range the prior implies as plausible, that's evidence the prior is misspecified (too tight, wrong location, or otherwise unreasonable) before any model fitting has even begun.
+
+### Why Full Path Simulation Is Required
+
+Since $\sigma_t$ in EGARCH/SV is recursively defined — $\sigma_{t+i}$ depends on $\sigma_{t+i-1}$, which depends on $\sigma_{t+i-2}$, and so on — and no data has been observed to pin down *any* of these values, every $\sigma_t$ in the prior predictive check is uncertain from the very first time step onward (unlike sequential forecasting, where $\sigma_t$ itself is already known and only $\sigma_{t+i}$ for $i>1$ is uncertain). This means a single deterministic path cannot represent "what the prior implies" — the prior implies an entire *distribution* over possible paths, which can only be characterized by simulating many independent paths forward, each with its own draw of parameters and shocks.
+
+For each simulated path $n$: draw parameters from the prior, then propagate the recursion forward one step at a time, drawing a fresh shock $z_{t+i}^{(n)}$ at each step and computing $\sigma_{t+i}^{(n)}$ from $\sigma_{t+i-1}^{(n)}$ and $z_{t+i}^{(n)}$. This forward propagation, repeated over many independent paths, automatically incorporates the full recursive chain back to $t$ — no separate backward or analytical step is needed, since each path is itself a valid, self-contained realization of the recursion.
+
+### Correct Order of Aggregation
+
+To compare against the historical volatility benchmark (a 21-day RMS-style quantity), the simulated paths must be aggregated in the correct order:
+
+$$\hat\sigma_t^{prior} = \sqrt{\frac{1}{h}\sum_{i=1}^h \underbrace{\frac{1}{N}\sum_{n=1}^N(\sigma_{t+i}^{(n)})^2}_{\text{average across paths, per time step}}}$$
+
+The average across simulated paths must be taken **before** the square root and window aggregation — averaging *after* taking the square root of each individual path's own RMS instead computes $\frac{1}{N}\sum_n\sqrt{\frac{1}{h}\sum_i(\sigma_{t+i}^{(n)})^2}$, which is systematically biased downward relative to the correct quantity, by Jensen's inequality ($E[\sqrt{X}] \le \sqrt{E[X]}$, since $\sqrt{\cdot}$ is concave). This is the same "expectation before aggregation" principle established for sequential forecasting — the model estimator averages *conditional variances* across uncertainty, not raw per-path point values.
+
+### Additional Checks Alongside Path Comparison
+
+- **Rejection rate**: paths violating stationarity ($|\beta|\ge 1$ for EGARCH, analogously for SV) or producing explosive/invalid returns are discarded; the fraction rejected indicates how tightly the prior enforces stationarity.
+- **Return-level check**: raw simulated returns (no aggregation needed, since returns are never aggregated) are compared directly against actual daily returns, checking plausibility at the daily scale alongside the volatility-scale check above.
+
+### General Approach to Developing Priors
+
+1. Use volatility theory and stationarity conditions to decide on distribution *types*.
+2. Use MLE fits (or suitable approximations, for the SV model) to determine mean parameters.
+3. Test variances via prior predictive checking.
+
+## EGARCH(1,1)-t
+
+$$r_t = \mu + \epsilon_t, \quad \epsilon_t = \sigma_t z_t, \quad z_t \overset{\text{i.i.d.}}{\sim} t_\nu(0,1)$$
+$$\ln\sigma_t^2 = \omega + \alpha\left(|z_{t-1}| - \mathbb{E}|z_{t-1}|\right) + \gamma z_{t-1} + \beta\ln\sigma_{t-1}^2$$
+
+(Patton, 2011 — check citation key; original EGARCH: Nelson, 1991)
+
+**Why EGARCH, specifically:**
+
+- **Leverage effect** ($\gamma$): captures the asymmetric response of volatility to positive vs. negative returns of equal magnitude — the key differentiator from symmetric GARCH-family models. This is the direct model-level mechanism whose absence was empirically confirmed for the rolling baseline via the Engle-Ng sign-bias test.
+- **Fat tails** ($t_\nu$ innovations): captures excess kurtosis in returns, relative to a Gaussian assumption — directly relevant to the PIT/KS shape assumption (see PIT/KS caveat: EGARCH uses a scaled Student-t $F_t$, not Normal).
+- **Sudden large price changes** ($\alpha$): captures the magnitude response of volatility to large shocks, regardless of sign.
+
+### EGARCH Priors
+
+| Parameter | Prior |
+|---|---|
+| $\mu$ | $\mathcal{N}(\hat\mu,\ 0.001^2)$ |
+| $\alpha$ | $\mathcal{N}_{[0,\infty]}(\hat\alpha,\ 0.05^2)$ |
+| $\gamma$ | $\mathcal{N}(\hat\gamma,\ 0.05^2)$ |
+| $\beta$ | $\text{Beta}(47, 3)$ |
+| $\nu - 2.1$ | $\text{Gamma}\left(\dfrac{\hat\nu - 2.1}{2},\ 0.5\right)$ |
+| $\sigma_\infty$ | $\mathcal{N}_{[0,0.02]}(\sigma_{prior},\ 0.003^2)$ |
+
+where $\omega = (1-\beta)\log\sigma_\infty^2$ is derived by taking expectations of the log-variance recursion as $t\to\infty$.
+
+Quick explanation beta < 1 for stationarity and 0.94 was the fit for it
+alpha is always positive
+nu-2.1 is needed since the value of nu never goes below 2 anyway so it makes sense to take 2.1 
+sigma infinity is always positive
+
+**Bayesian implementation**: 
+
+Priors Through Prior Predictive Checking in 2013-2017 period
+
+Generate posterior samples via MCMC (NUTS, through NumPyro - a gradient based sampler for efficient posterior exploration). 
+
+### Stationarity and the COVID Period
+
+EGARCH and SV assume $\sigma_t$ fluctuates around a stable long-run level $\sigma_\infty^2$, not that $\sigma_t$ is constant. This is compatible with volatility clustering and mean-reversion, but assumes a single, fixed $\sigma_\infty^2$ holds throughout the estimation period.
+
+COVID poses two potential challenges to this: (1) if COVID represents a genuine, lasting shift in the market's volatility regime rather than a temporary deviation, the single $\sigma_\infty^2$ assumed (elicited from the calmer 2013–2017 prior period) may not be the correct long-run target for the regression period as a whole; (2) even if stationarity holds in principle, the models' persistence parameters ($\beta$, $\phi$) determine how quickly volatility reverts, and COVID's unusually rapid spike may exceed the speed these parameters were calibrated to handle. Both are testable via the existing COVID sub-period evaluation (QLIKE, RV coverage) rather than assumed away.
+
+
+### Implementation using Jax and NumPyro
+
+Using JAX and NumPyro, the MCMC method can be implemented. 
+
+The idea is to sample things via NumPyro and then create a gird with EGARCH steps
+
+
+
+## Stochastic (SV) Model
+
+### Stochastic Volatility Priors
+
+| Parameter | Prior |
+|---|---|
+| $\mu_h$ | $\mathcal{N}(\hat\mu_h,\ 1^2)$ |
+| $\phi$ | $\text{Beta}(7, 1)$ |
+| $\sigma_\eta$ | $\mathcal{N}^{+}(0,\ 0.5^2)$ |
+| $\mu_r$ | $\mathcal{N}(\hat\mu_r,\ 0.001^2)$ |
+
+where $\mu_h = \log\sigma_\infty^2$ is derived by taking expectations of the latent volatility recursion as $t\to\infty$.
