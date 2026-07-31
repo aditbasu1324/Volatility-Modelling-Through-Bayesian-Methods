@@ -395,3 +395,145 @@ Checks whether calibration errors are independent over time — a dimension pool
 - **ACF of $z_t^2$ (squared, ARCH-LM style)**: tests for leftover *volatility clustering* the model failed to capture.
 - **Engle-Ng sign-bias test**: regress $z_t^2$ on $\text{sign}(r_{t-1})$ (and interaction terms with $r_{t-1}$ itself) — directly tests for *leverage/asymmetry* miscalibration, i.e. whether calibration errors depend systematically on the sign of the previous return. This is the concrete implementation of the leverage-testing gap discussed earlier, and follows the same regression-based logic as the ACF checks above.
 - **Cross-correlation of $z_t^2$ with lagged $|r_{t-1}|$ or $r_{t-1}^2$**: checks whether error magnitude relates to the *size* (not just sign) of recent shocks — a complementary check to the ARCH-LM-style test above, at a finer level of detail.
+
+### Method
+
+1. Sample parameters from their priors (as specified in the Priors section above).
+2. Propagate the EGARCH recursion forward through the regression period's returns, generating the implied $\sigma_t$ path for that specific parameter draw.
+3. Use this $\sigma_t$ path to evaluate the likelihood of the full regression-period returns under a Student-t observation model, and let NUTS use this (and its gradient) to inform the next proposal.
+4. Repeat across many draws to build up the posterior.
+
+
+
+
+### NUTS: Extending Metropolis-Hastings with Gradient Information
+
+**Setup**: introduce auxiliary momentum $p\in\mathbb{R}^d$ (same dimension as $\theta$, artificial — discarded each iteration), $p\sim N(0,M)$. Define potential energy $U(\theta)=-\log\pi(\theta)$ and joint density $\pi(\theta,p)\propto\exp(-U(\theta)-\frac12 p^TM^{-1}p)$. Marginalizing out $p$ recovers $\pi(\theta)$ exactly.
+
+**Leapfrog integrator** (one step, size $\epsilon$) — this is where $\nabla\log\pi(\theta)$ enters:
+$$p_{1/2} = p + \frac{\epsilon}{2}\nabla\log\pi(\theta), \qquad \theta' = \theta + \epsilon M^{-1}p_{1/2}, \qquad p' = p_{1/2} + \frac{\epsilon}{2}\nabla\log\pi(\theta')$$
+Repeating this $L$ times traces a trajectory $(\theta,p)\to\cdots\to(\theta_L,p_L)$, pushed toward higher posterior density at every step by the gradient.
+
+**Basic HMC acceptance** (still Metropolis-Hastings):
+$$\alpha = \min\big(1,\ \exp(-U(\theta_L)-K(p_L)+U(\theta_0)+K(p_0))\big), \quad K(p)=\tfrac12 p^TM^{-1}p$$
+This is the same MH acceptance rule as before, applied to the joint $(\theta,p)$ system — detailed balance still holds, since leapfrog is reversible and volume-preserving.
+
+**NUTS's addition — adaptive trajectory length**: rather than fixing $L$, NUTS doubles the trajectory in a randomly chosen direction at each iteration, stopping via the **No-U-Turn criterion**: for trajectory endpoints $\theta^-,\theta^+$ with momenta $p^-,p^+$,
+$$(\theta^+-\theta^-)\cdot p^- \ge 0 \quad\text{and}\quad (\theta^+-\theta^-)\cdot p^+ \ge 0$$
+Doubling continues while both hold; the moment either goes negative, the trajectory has curved back on itself and doubling stops. The next sample is drawn uniformly from the valid (slice-sampling-qualified) points generated across the whole trajectory — not just its endpoint — which preserves detailed balance exactly despite the trajectory's length varying dynamically.
+
+**Step size $\epsilon$**: tuned automatically during warmup via dual averaging, targeting a specified acceptance rate (e.g. 0.95).
+
+**Summary**: Steps 1–4 (evaluating $\log\pi(\theta)$) are unchanged for any sampler. NUTS replaces only the proposal mechanism — blind random-walk $\to$ gradient-driven leapfrog trajectory with adaptive length — while the correctness guarantee (detailed balance, ergodicity, convergence) established for basic Metropolis-Hastings continues to hold unchanged.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+QLIKE involves two distinct averaging operations, over two different axes:
+1. Across posterior draws, at each fixed day: $\hat\sigma_t^{model} = \sqrt{\frac{1}{S}\sum_s(\sigma_t^{(s)})^2}$ — required by the theoretical derivation ($E[\sigma_{t+i}^2\mid\mathcal{F}_t]$), producing one point estimate per day before any comparison happens.
+2. Across time, after computing daily QLIKE values: $\overline{\text{QLIKE}} = \frac{1}{T}\sum_t \text{QLIKE}(\hat\sigma_t^{model}, RV_t)$ — the standard "mean QLIKE" summary statistic used for reporting/ranking models.
+These are not interchangeable or reorderable — the per-day posterior collapse must happen first, since QLIKE requires one scalar $\hat\sigma_t$ per day to even be computed.
+
+Theoretical.md
+
+### How QLIKE Fits Into This
+
+QLIKE compares the model's **mean historical volatility** ($\hat\sigma_t^{model}$) against the empirical historical volatility ($\hat\sigma_t^{empirical}$) — and the mean historical volatility is, by construction, always computed via Method 2 (average across posterior draws *before* applying any further formula), never Method 1.
+
+This isn't an arbitrary implementation choice specific to QLIKE — it follows directly from how $\hat\sigma_t^{model}$ itself is defined and derived (see Historical Volatility, above): the martingale-difference/RMS derivation produces $E[\sigma_{t+i}^2\mid\mathcal{F}_t]$ as the correct per-day target, which requires averaging across the posterior (or simulated paths) *before* the window-RMS aggregation, for the same Jensen's-inequality reason established earlier. $\hat\sigma_t^{model}$ is Method 2 by definition — there is no alternative "Method 1 version" of the mean historical volatility itself, since the quantity being estimated is an expectation, not a collection of separately-scored draws.
+
+QLIKE, in turn, simply takes this already-computed $\hat\sigma_t^{model}$ (Method 2's output) and compares it once per day against $\hat\sigma_t^{empirical}$:
+$$\text{QLIKE}_t = \text{QLIKE}\left(\hat\sigma_t^{model}, \hat\sigma_t^{empirical}\right)$$
+QLIKE itself never touches the posterior draws directly — it only ever sees the single, already-averaged $\hat\sigma_t^{model}$ series. The subsequent "mean QLIKE" (averaging $\text{QLIKE}_t$ across days $t$, for reporting) is a separate averaging step over a different axis (time, not posterior draws) — see the note above.
+
+This is why QLIKE and PIT differ in which method they use: QLIKE inherits Method 2 automatically, simply by using $\hat\sigma_t^{model}$ (which is always Method 2 by construction) as its input. PIT, by contrast, is not built from $\hat\sigma_t^{model}$ at all — it evaluates a distributional CDF at the actual return, which is why it independently uses Method 1 (averaging the CDF evaluation across draws), rather than inheriting Method 2 from the HV comparison machinery.
+
+
+## Historical Volatility Coverage for Posterior-Based Models
+
+Unlike the baseline (a single point forecast, where the log-normal noise quantile has a closed-form solution), EGARCH and PF-SV produce $S$ posterior draws — requiring the coverage interval to account for two distinct, independent sources of uncertainty simultaneously: the model's own posterior spread, and the empirical benchmark's measurement noise ($\hat\sigma_\eta$).
+
+### Step 0: What Is Already Available
+
+$$\text{hv\_per\_draw}[s,t] = \sqrt{\frac{1}{h}\sum_{i=1}^h \left(\sigma_{t+i}^{(s)}\right)^2}, \qquad s=1,...,S$$
+
+One window-aggregated historical volatility value per posterior draw, at every day $t$ — this reflects the model's own posterior uncertainty about the true HV at day $t$, before any benchmark noise is considered.
+
+### Step 1: Recall the Log-Normal Noise Model
+
+$$\hat\sigma_t^{empirical} = \sigma_t^{true}\cdot\exp(\eta_t), \qquad \eta_t \sim N(0,\hat\sigma_\eta^2)$$
+
+$\eta_t$ represents the empirical benchmark's own measurement noise — a source of uncertainty entirely separate from, and independent of, the model's posterior spread.
+
+### Step 2: Simulate a Noisy Realization for Each Draw
+
+For each posterior draw $s$ at each day $t$, draw an independent noise realization and apply it multiplicatively to that draw's own HV value:
+
+$$\text{noisy\_hv}[s,t] = \text{hv\_per\_draw}[s,t] \cdot \exp\left(\eta_t^{(s)}\right), \qquad \eta_t^{(s)} \overset{iid}{\sim} N(0,\hat\sigma_\eta^2)$$
+
+Each cell of the resulting $(S,T)$ array represents one plausible realization of "what a noisy empirical measurement might show, if posterior draw $s$ described the true state" — jointly simulating both sources of uncertainty together, rather than combining them analytically.
+
+### Step 3: Take Percentiles Across the Combined Ensemble
+
+$$\text{lower}_t = \text{Percentile}_5\Big(\{\text{noisy\_hv}[1,t],...,\text{noisy\_hv}[S,t]\}\Big), \qquad \text{upper}_t = \text{Percentile}_{95}\Big(\{\text{noisy\_hv}[1,t],...,\text{noisy\_hv}[S,t]\}\Big)$$
+
+### Why Simulation Is Required (Not an Analytic Shortcut)
+
+For the baseline ($S=1$), the coverage interval reduces to a single log-normal distribution's quantile, computable analytically: $\hat\sigma_t^{roll}\cdot\exp(\pm z\cdot\hat\sigma_\eta)$.
+
+For $S>1$, the combined distribution is a **mixture** of $S$ log-normal distributions (one centered at each draw's own HV value) — mixtures of log-normals have no closed-form quantile in general, so simulation (Steps 2–3 above) is the standard, correct way to obtain percentiles. This is the same underlying question in both cases — "what range of empirical values is plausible, given the model's estimate(s) and known benchmark noise?" — the baseline is simply the degenerate $S=1$ special case that happens to admit an exact analytic shortcut.
+
+### Coverage Check
+
+Exactly as for the baseline, coverage is checked against the interval constructed above:
+$$\text{coverage}_t = \mathbb{1}\left[\text{lower}_t \le \hat\sigma_t^{empirical} \le \text{upper}_t\right]$$
+
+### Data
+
+Historical volatility (HV) is inherently retrospective: computing $\hat\sigma_t^{empirical}$ for any day requires the following 21 days of returns, which are never available in real time. This applies uniformly throughout the dataset (including at period and window boundaries) and reflects HV's role purely as a benchmark for post-hoc evaluation, not as a live/real-time forecasting quantity.
+
+
+
+Rolling/historical volatility are computed on the full continuous return series, then sliced by period. Values near any boundary (period transitions, or model-internal window transitions) reflect returns from the adjacent period/window, since both are inherently backward/forward-looking by construction — this is a universal property of these estimators, not specific to any one boundary, and does not affect the underlying models' own out-of-sample forecast validity (see theoretical.md).
+
+
+
+### Should $\hat\sigma_\eta$ Vary by Posterior Draw?
+
+$\hat\sigma_\eta$ is computed once, globally, using the **mean** forecast series ($\hat\sigma_t^{model}$, the Method 2 posterior average) against the actual empirical HV — not per posterior draw. Each simulated noise realization $\eta_t^{(s)}$ is drawn independently for every $(s,t)$ cell, but all from the same shared $N(0,\hat\sigma_\eta^2)$ distribution.
+
+**Why not compute a separate $\hat\sigma_\eta^{(s)}$ per draw?**
+
+In principle, each draw's own HV series could be compared against the actual individually:
+$$\hat\sigma_\eta^{(s)} = \text{std}_t\left(\log\hat\sigma_t^{empirical} - \log\hat\sigma_t^{(s)}\right)$$
+giving each draw its own noise-correction magnitude, rather than sharing one global value.
+
+This was considered and rejected, for two reasons:
+
+1. **Conceptual**: $\sigma_\eta$ is meant to represent the empirical benchmark's own measurement noise (Sources of Error, point 1) — a property of $\hat\sigma_t^{empirical}$ alone, which has no reason to vary depending on which posterior draw it's being compared against. A shared, draw-independent $\hat\sigma_\eta$ is more consistent with this interpretation.
+2. **Circularity risk**: computing $\hat\sigma_\eta^{(s)}$ from a specific draw's own deviation from the actual would widen that draw's own interval specifically *because* it deviates — potentially masking genuine miscalibration for poorly-fitting draws by construction, since the correction is derived from the very discrepancy being tested. This is a more severe version of the circularity concern already flagged for the global, regression-period $\hat\sigma_\eta$.
+
+The known trade-off (already documented under "What $\hat\sigma_\eta$ Actually Estimates") remains: the shared $\hat\sigma_\eta$ is contaminated by *some* average model error across all draws combined ($\hat\sigma_\eta^2 \approx \sigma_\eta^2 + \text{Var}(\epsilon_t^{model})$), but this is judged preferable to a per-draw version that risks self-fulfilling interval widening.
+
+### Note: The Mean Line May Occasionally Sit Outside Its Own Percentile Band
+
+The mean HV forecast (Method 2: average across draws before the square root) and the percentile band (built from each draw's own square-rooted HV, plus noise) are computed via different, individually-correct orderings of the same quantities. By Jensen's inequality, the average of per-draw square roots is always ≤ the square root of the average — empirically, this gap is approximately 10% of the typical HV level for EGARCH's sequential forecasts, reflecting genuine posterior spread in $\sigma_t$ across draws. In windows where the combined posterior-spread-plus-noise band is comparably narrow, the mean line can sit above the band's upper percentile — a structural consequence of using the theoretically correct aggregation order for each quantity separately, not a plotting or alignment error.

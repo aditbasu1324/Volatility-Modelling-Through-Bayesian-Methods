@@ -14,31 +14,7 @@ The project splits SPY data into three periods, each serving a distinct methodol
 
 Note that each model will be developed and then tested on both regression and sequential data. At the end of this notebook, the models will be compared to each other.
 
-The model's effectiveness is tested using different metrics that are listed below:
-Bullet point lists of just the label of the metrics
-
-## Metrics Overview
-
-The different metrics used and their purposes are listed below.
-
-### Historical Volatility Comparison
-**Point**: check how closely the model's volatility matches reality across a window.
-
-- **QLIKE (mean loss)**: mean pointwise loss, weighted to penalize underestimating volatility more heavily (generally more costly than overestimating).
-- **RV Coverage**: checks if the model's stated confidence intervals actually contain the empirical value at the expected rate.
-
-### Return Distribution Calibration
-**Point**: checks if the model's implied return distribution matches the actual return distribution — a day-by-day test, independent of the window-level comparison above and of the noise correction used in RV coverage.
-
-- **PIT/KS**: tests whether the model's day-by-day claimed uncertainty matches what actually happens (jointly tests volatility level and assumed shape — can't separate the two)
-- KS test / histogram: formal and visual versions of the same check.
-
-### Serial Dependence Diagnostics
-**Point**: checks if the model's errors are predictable over time — a model can be right on average while still failing in a systematic, exploitable pattern.
-
-- **ACF of $z_t$**: tests for directional persistence in errors.
-- **ACF of $z_t^2$**: tests for volatility-clustering persistence in errors.
-- **Engle-Ng sign-bias test**: tests if errors depend on the sign of the previous return (leverage effect).
+The model's effectiveness is tested using metrics covering historical volatility comparison, return distribution calibration, and serial dependence — see theoretical.md (Metrics Overview) and metrics.md for details.
 
 ## Regression Conditions
 
@@ -71,3 +47,25 @@ This model was chosen after AIC/BIC comparison with other time series models (th
 Then the priors were developed using prior predictive checking and information obtained from fitting the prior data to the model.
 
 Then the posterior samples are obtained via NUTS/MCMC.
+
+## EGARCH: Regression
+
+1. Sample parameters from their priors (see Priors section).
+2. Propagate the EGARCH recursion forward through the regression period's *actual observed* returns, generating the implied $\sigma_t$ path for that specific parameter draw.
+3. Use this $\sigma_t$ path to evaluate the likelihood of the full regression-period returns under a Student-t observation model; NUTS uses this (and its gradient) to inform the next proposal.
+4. Repeat across many draws to build up the posterior.
+
+Since EGARCH volatility is estimated pointwise (one $\sigma_t$ per day per posterior draw), it is aggregated (see theoretical.md) before comparison with historical volatility.
+
+## EGARCH: Sequential
+
+The volatility state is carried forward from the end of the regression period (per-draw, not a point estimate).
+
+Each window involves two processes:
+
+1. **Forecast generation**: the recursion is propagated forward from the incoming posterior using *simulated* shocks (both a simulated return and the resulting $\sigma_t$ are generated together at each step, though only $\sigma_t$ is used further). This forecast feeds every evaluation metric (QLIKE, HV coverage, PIT, serial-dependence diagnostics).
+2. **Refitting**: the window is then refit on its actual returns — mechanically similar to the regression fit, but using priors derived from the previous window's posterior (fit to a parametric family: Beta for $\beta$, Gamma for $\nu_{shift}$, Normal/TruncatedNormal for the rest). NUTS produces an updated posterior; this step has no evaluation role of its own.
+
+The updated posterior and its end-of-window state seed the next window's forecast, and the process repeats. Both the volatility estimate and the noise correction ($\hat\sigma_\eta$) are computed with the same expanding, out-of-sample discipline — see theoretical.md.
+
+

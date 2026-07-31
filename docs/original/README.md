@@ -14,8 +14,16 @@ Historical volatility is more accurate than realized volatility in this context 
 
 Incorrectly used 1/h-1 for the model side instead of 1/h
 
-Adding metrics to the baseline that were not thought of initially. 
+Adding metrics to the baseline that were not thought of initially. including the time series metrics
 
 Change the structure of the code to include COVID stuff.
 
 Consider the metrics in more detail and improve the theoretical justification of the models
+Consider the prior predictive checks more clearly
+Create functions to make the code more organized and more reproducible for the future.
+
+Understand the historical volatility comparison in more detail (the expectation with regards to Ft).
+Coding error in MCMC with using prior_std, 
+Additionally the PIT for sequential was based on implied paths not the forecasted paths
+
+changed a bunch of the sampling code, including addition of the method 1, method 2 discussion the 2000 as opposed to 8000 values carry forward
