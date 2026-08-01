@@ -68,4 +68,8 @@ Each window involves two processes:
 
 The updated posterior and its end-of-window state seed the next window's forecast, and the process repeats. Both the volatility estimate and the noise correction ($\hat\sigma_\eta$) are computed with the same expanding, out-of-sample discipline — see theoretical.md.
 
+## Stochastic Volatility Model
 
+A Standard Stochastic Volatility model, fit via Particle MCMC (PMCMC) — see theoretical.md/sampling.md for the model definition and why PMCMC is required, and implementation.md for how this is coded.
+
+Follows the same regression/sequential structure as EGARCH (see Regression Conditions / Sequential Updating): priors developed on 2013-2017 data, fit via PMCMC on regression-period data, then sequentially updated across the 2022-2025 windows.

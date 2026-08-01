@@ -537,3 +537,10 @@ The known trade-off (already documented under "What $\hat\sigma_\eta$ Actually E
 ### Note: The Mean Line May Occasionally Sit Outside Its Own Percentile Band
 
 The mean HV forecast (Method 2: average across draws before the square root) and the percentile band (built from each draw's own square-rooted HV, plus noise) are computed via different, individually-correct orderings of the same quantities. By Jensen's inequality, the average of per-draw square roots is always ≤ the square root of the average — empirically, this gap is approximately 10% of the typical HV level for EGARCH's sequential forecasts, reflecting genuine posterior spread in $\sigma_t$ across draws. In windows where the combined posterior-spread-plus-noise band is comparably narrow, the mean line can sit above the band's upper percentile — a structural consequence of using the theoretically correct aggregation order for each quantity separately, not a plotting or alignment error.
+
+### ACF as a Single-Chain Mixing Diagnostic (PMCMC)
+
+Since PMCMC here runs a single chain (no multi-chain R-hat comparison available, unlike NUTS's parallel chains), the primary convergence/efficiency diagnostic is the autocorrelation function (ACF) of each post-burn-in parameter trace. Slow decay (autocorrelation remaining significant over many lags) directly corresponds to low effective sample size (see ESS, above) — the raw sample count overstates how much independent information the chain actually contains. Fast decay indicates efficient mixing, consistent with a well-tuned proposal and acceptance rate.
+
+DM Test 
+50 day return series plot

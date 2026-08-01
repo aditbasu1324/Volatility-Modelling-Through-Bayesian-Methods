@@ -251,7 +251,28 @@ EGARCH and SV assume $\sigma_t$ fluctuates around a stable long-run level $\sigm
 
 COVID poses two potential challenges to this: (1) if COVID represents a genuine, lasting shift in the market's volatility regime rather than a temporary deviation, the single $\sigma_\infty^2$ assumed (elicited from the calmer 2013–2017 prior period) may not be the correct long-run target for the regression period as a whole; (2) even if stationarity holds in principle, the models' persistence parameters ($\beta$, $\phi$) determine how quickly volatility reverts, and COVID's unusually rapid spike may exceed the speed these parameters were calibrated to handle. Both are testable via the existing COVID sub-period evaluation (QLIKE, RV coverage) rather than assumed away.
 
-## Stochastic (SV) Model
+## Stochastic Volatility (SV) Model
+
+$$r_t = \mu_r + \sigma_t\epsilon_t, \quad \epsilon_t \overset{\text{i.i.d.}}{\sim} \mathcal{N}(0,1)$$
+$$\ln\sigma_t^2 = \mu_h + \phi(\ln\sigma_{t-1}^2 - \mu_h) + \eta_t, \quad \eta_t \overset{\text{i.i.d.}}{\sim} \mathcal{N}(0,\sigma_\eta^2)$$
+
+(Taylor, 1986)
+
+**Why SV, specifically:**
+
+- **Genuine stochastic volatility**: unlike EGARCH, where $\sigma_t$ is a deterministic function of information available at $t-1$, SV allows an independent random shock $\eta_t$ at time $t$ itself — volatility has its own source of randomness, not fully determined by past returns. This more directly represents latent volatility uncertainty, rather than treating $\sigma_t$ as something perfectly computable once past data is known.
+- **Trade-off**: this added flexibility comes at the cost of not explicitly capturing several properties EGARCH does — SV as specified here has no direct leverage term (no asymmetric response to positive vs. negative returns) and no fat-tailed innovation distribution (Gaussian $\epsilon_t$, unlike EGARCH's Student-$t_\nu$). Whether this matters is directly testable via the Engle-Ng sign-bias test and PIT/KS shape check, exactly as for the baseline and EGARCH.
+
+**Stationarity condition**: $|\phi| < 1$ — required for the latent log-variance process to have a well-defined long-run mean $\mu_h$ and finite variance, analogous to EGARCH's $|\beta|<1$ requirement (see Priors, Stationarity and the COVID Period).
+
+### Why Particle MCMC (PMCMC) Is Required
+
+Unlike EGARCH, where $\sigma_t$ is a deterministic function of observed returns (so the likelihood $p(\text{data}\mid\theta)$ is directly computable), SV's $\sigma_t$ depends on the entire latent path of shocks $\eta_1,...,\eta_t$ — none of which are directly observed. Computing the exact likelihood would require integrating out this entire latent path:
+$$p(\text{data}\mid\theta) = \int p(\text{data}\mid\{\sigma_t\},\theta)\,p(\{\sigma_t\}\mid\theta)\,d\{\sigma_t\}$$
+an integral over a high-dimensional latent trajectory, intractable in closed form — a fundamentally harder problem than EGARCH's likelihood, which needed no such integration since $\sigma_t$ was fully determined by observed data alone.
+
+PMCMC (see sampling.md) resolves this by using a **particle filter** to produce an unbiased *estimate* of this intractable likelihood, then plugging that estimate into the same Metropolis-Hastings acceptance framework already established — a specific theoretical result (Andrieu, Doucet & Holenstein, 2010) guarantees this still yields exact posterior samples, despite the likelihood itself being only estimated rather than computed exactly.
+
 
 ### Stochastic Volatility Priors
 
