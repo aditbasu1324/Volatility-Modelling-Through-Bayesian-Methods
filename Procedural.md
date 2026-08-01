@@ -22,7 +22,11 @@ Priors developed on 2013–2017 data are updated using 2018–2021 data to obtai
 
 This is an in-sample test: the fitted parameters are propagated forward through the regression-period data itself to obtain implied volatility paths.
 
-**COVID breakdown**: since the regression period (2018–2021) contains the COVID-19 volatility shock, all metrics are additionally reported split into pre-COVID, COVID, and post-COVID sub-periods (2020-01-30 to 2020-04-30), in addition to their pooled values. This checks how quickly and how well each model adapted to a genuine, rapid regime shift — a pooled, whole-period average can mask sub-period miscalibration (see theoretical.md).
+**COVID breakdown**: since the regression period (2018–2021) contains the COVID-19 volatility shock (2020-01-30 to 2020-04-30), the historical-volatility comparison metrics (QLIKE, RV coverage) are additionally reported split into pre-COVID, COVID, and post-COVID sub-periods, alongside their pooled values.
+
+This checks how quickly and how well each model adapted to a genuine, rapid regime shift, since a pooled, whole-period average can mask sub-period miscalibration (see Why Break Down by Sub-Period?, theoretical.md).
+
+A related but distinct concern applies to PIT/KS specifically — pooled uniformity testing doesn't check whether consecutive values are independent over time, addressed separately via the Serial Dependence Diagnostics (theoretical.md/metrics.md).
 
 ## Sequential Updating
 
@@ -37,6 +41,11 @@ In each window:
 ## Baseline: Rolling Average
 
 The rolling average is used as a naive baseline for comparison against the Bayesian models. It has no parameters and is not itself Bayesian — see theoretical.md for its definition and the implications of this.
+
+Applied identically across regression and sequential settings: the rolling-window formula is computed directly from observed returns (no fitting step), then extended into a constant forecast across the evaluation window (the forecast rule — see theoretical.md). All metrics (QLIKE, HV Coverage, PIT/KS, ACF/Engle-Ng) are computed as described in theoretical.md ("Applying the Metrics to the Baseline").
+
+- **Regression**: metrics reported pooled and split into pre-COVID/COVID/post-COVID sub-periods.
+- **Sequential**: metrics reported pooled and split by the 8 six-month windows; $\hat\sigma_\eta$ is re-estimated as an expanding, out-of-sample quantity per window (see Expanding-Window Noise Estimation, theoretical.md).
 
 ## Time Series Model: EGARCH(1,1)-t
 

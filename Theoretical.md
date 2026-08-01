@@ -17,13 +17,22 @@ Before introducing specific metrics, it's worth stating the empirical properties
 - **Shape**: return distributions are not Gaussian — they exhibit fat tails (excess kurtosis) relative to Normal.
 - **Volatility clustering**: large changes tend to follow large changes (of either sign) — formally, raw returns show little autocorrelation, but squared/absolute returns show strong, persistent autocorrelation. This is the single most fundamental stylized fact motivating GARCH-family and stochastic volatility models.
 - **Leverage effect**: negative returns tend to increase future volatility more than positive returns of equal magnitude.
-- **Volatility persistence / long memory**: volatility shocks decay slowly, with effects lingering over many periods.
 
 Each metric below is designed to test whether a model has correctly captured one or more of these properties — not as an arbitrary battery of statistical procedures, but as a direct check against the known empirical structure of real markets.
 
 ## Metrics Overview
 
 The different metrics used and their purposes are listed below.
+
+### Mapping Stylized Facts to Metrics
+
+| Stylized Fact | Tested By |
+|---|---|
+| **Level** | QLIKE, HV Coverage |
+| **Uncertainty** | HV Coverage (interval width), PIT/KS (distributional calibration) |
+| **Shape** | PIT/KS (assumed distribution vs. actual return distribution) |
+| **Volatility clustering** | ACF of $z_t^2$ |
+| **Leverage effect** | Engle-Ng sign-bias test |
 
 ### Historical Volatility Comparison
 **Point**: check how closely the model's volatility matches reality across a window.
@@ -38,13 +47,13 @@ The different metrics used and their purposes are listed below.
 - KS test / histogram: formal and visual versions of the same check.
 
 ### Serial Dependence Diagnostics
-**Point**: checks if the model's errors are predictable over time — a model can be right on average while still failing in a systematic, exploitable pattern.
+**Point**: checks if errors in the model's implied return distribution are predictable over time — a model can be right on average while still failing in a systematic, exploitable pattern.
 
-- **ACF of $z_t$**: tests for directional persistence in errors.
+- **ACF of $z_t$**: tests for directional persistence in errors (general diagnostic test for time-series).
 - **ACF of $z_t^2$**: tests for volatility-clustering persistence in errors.
 - **Engle-Ng sign-bias test**: tests if errors depend on the sign of the previous return (leverage effect).
 
-These metrics — including remaining test-coverage gaps and why no single test suffices — are covered in more detail in the metrics.md section.
+These metrics are covered in more detail in the metrics.md section.
 
 ### Why Regression Testing?
 
@@ -54,31 +63,21 @@ These metrics — including remaining test-coverage gaps and why no single test 
   - **Generalization failure** — works in-sample, fails out-of-sample
 - These call for different fixes (respecify the model vs. improve adaptation), so separating them matters.
 
-### Why Isn't $\sigma_t^{model}$ Simply the Truth?
-
-$\sigma_t$ is latent in EGARCH/SV — never directly observed, only inferred via a Bayesian posterior over an assumed data-generating process. $\sigma_t^{model}$ cannot be treated as ground truth, for three distinct reasons:
-
-1. **Irreducible posterior uncertainty** — even under a perfectly specified model, a posterior conditioned on finite data has nonzero variance (this is exactly what credible interval width reflects).
-2. **Misspecification** — Bayesian posterior consistency (concentration around the true parameter) holds only if the model's assumed dynamics genuinely match the true process, and only asymptotically. Under misspecification, the posterior instead concentrates around a *pseudo-true* value (the closest model-consistent approximation to the truth), which need not equal the true volatility path.
-3. **Numerical approximation error** — finite MCMC samples (and, for PF-SV, finite particles) introduce Monte Carlo error beyond the idealized posterior.
-
-This is why $\sigma_t^{model}$ carries its own error (genuine model error, see metrics.md Sources of Error) distinct from — but structurally analogous to — the estimation error established for $\hat\sigma_t^{empirical}$: both are estimates of an unobservable quantity, subject to their own respective sources of noise. If regression-period testing reveals poor fit (Why Regression Testing?, above), reason 2 (misspecification) is the most likely candidate, since regression is the best-case, full-information scenario.
-
 ### Why Sequential Updating?
 
 - Genuinely out-of-sample provided the fitting process uses only data prior to each window (see Filtering vs. Smoothing, below).
 - The most stringent test: can the model forecast using only current information?
 
-### Filtering vs. Smoothing: What "Genuinely Out-of-Sample" Actually Requires
+### Why Break Down by Sub-Period?
 
-Sequential updating's core idea is simple: each window carries forward the previous window's posterior, and propagates the recursion forward through the current window. The subtlety is that there are two distinct things this could mean, serving two different purposes:
+**Point**: pooled averages can mask systematic, regime-dependent miscalibration — applies to HV comparison metrics (QLIKE, HV coverage); PIT/serial-dependence have a related but separate limitation (see Serial Dependence Diagnostics).
 
-- **Forecasting** (before the window's data is available): propagate using *simulated* shocks, since the real returns for this window haven't happened yet from the perspective of a genuine forecast.
-- **Refitting** (after the window's data is observed): propagate using the *real* returns, to update the posterior for the next window.
+**1. Pooled averages can hide systematic (not random) miscalibration**
+- Averaging isn't the problem itself: randomly scattered errors are well-summarized by their average.
+- The issue is errors systematically concentrated in an identifiable regime (e.g. a crisis) that cancel against opposite errors elsewhere — a gap coinciding with a known regime signals systematic error, not ordinary noise.
 
-Using real returns to generate what's claimed to be a "forecast" would be a form of look-ahead bias — a day early in the window would be evaluated using a $\sigma_t$ that implicitly depends on later days' real returns within the same window (since the refitting recursion runs sequentially through that same window's real data). This project therefore keeps the two processes separate: forecast generation is used for *all* evaluation metrics (QLIKE, RV coverage, PIT, serial-dependence diagnostics); refitting is used only to prepare the next window's prior and produces no evaluation output itself.
-
-This means every evaluation metric shares the same limitation: the theoretically ideal quantity is $E[\sigma_{t+i}^2\mid\mathcal{F}_t]$, freshly conditioned at each real day $t$; what is computed instead is $E[\sigma_{t+i}^2\mid\mathcal{F}_{\text{window start}}]$ for the whole window at once, from one simulation per posterior draw. Forecast quality may degrade for days further from the window's start, since they use increasingly stale conditioning information. A fully rigorous version would branch a fresh, short forward simulation from each day's real, filtered state — computationally more expensive, and not implemented here.
+**2. Sub-period breakdown also tests regime robustness directly**
+- Shows whether performance is stable across regimes — relevant since models are relied on most during exactly the volatile periods where miscalibration is most consequential.
 
 ## Baseline: Rolling Average
 
@@ -95,37 +94,47 @@ $$(\sigma_t^{roll})^2 = \frac{1}{h-1}\sum_{i=0}^{h-1}(r_{t-i}-\bar r_t)^2$$
 
 Unlike EGARCH/SV, the "volatility equation" is a fixed, deterministic window function of past returns — no parameters to estimate, fully determined once the last $h$ returns are known. $\sigma_t^{roll}$ is genuinely time-varying as $t$ advances, but the baseline has no explicit law for how it evolves *beyond* time $t$.
 
-**Forecast rule**: $\sigma_{t+i}^{roll,\,forecast} := \sigma_t^{roll}$ for all $i=1,...,h$ (no-change extension) — reduces the RMS/martingale comparison to the degenerate constant-volatility case (see Historical Volatility). A standard convention for naive point forecasts, not a property inherent to the estimator itself.
+**Forecast rule**: $\sigma_{t+i}^{roll,\,forecast} := \sigma_t^{roll}$ for all $i=1,...,h$ — a naive no-change assumption (tomorrow's volatility is assumed the same as today's), not something derived from the two equations above.
+
+**Note**: the observation equation's $\varepsilon_t\sim N(0,1)$ is what PIT's assumed distribution ($r_t\sim N(0,(\hat\sigma_t^{roll})^2)$) directly relies on — not a separate, additional assumption.
 
 **Key properties:**
 - Naive baseline: no model assumptions, trivially computable.
 - Not parametric → no in-sample/out-of-sample distinction; regression and sequential values computed identically.
 - Not Bayesian → no native credible intervals.
 
+### Why This Forecast Rule Is Enough
+
+Since $\sigma_{t+i}$ is treated as the same known value for every day in the window, there's no future uncertainty left to account for — the general requirement of averaging over possible future outcomes ($E[\sigma_{t+i}^2\mid\mathcal{F}_t]$) collapses to just $(\sigma_t^{roll})^2$, with nothing to simulate or average. This is also why the baseline structurally can't react to a genuine change in volatility within its own forecast window.
+
 ### Applying the Metrics to the Baseline
 
-The following applies to both the regression and sequential settings, unless noted otherwise below.
+Using the forecast rule, the historical volatility estimate reduces to a single value:
+$$\hat\sigma_t^{roll,HV} = \sqrt{\frac{1}{h}\sum_{i=1}^h E[\sigma_{t+i}^2\mid\mathcal{F}_t]} = \sqrt{\frac{1}{h}\sum_{i=1}^h (\sigma_t^{roll})^2} = \sigma_t^{roll}$$
 
-- **QLIKE**: applies directly to $\hat\sigma_t^{roll}$ vs $\hat\sigma_t^{empirical}$ — no distributional assumption needed.
-- **HV Coverage**: no native posterior, so the interval is constructed entirely from the log-normal noise model ($\hat\sigma_\eta^{roll}$, fit the same way as for the Bayesian models, substituting $\hat\sigma_t^{roll}$ for $\hat\sigma_t^{model}$). Unlike EGARCH/PF-SV, this noise-model interval is the *sole* source of interval width — there is no posterior uncertainty to combine it with.
-- **PIT/KS**: requires an externally imposed distributional shape, since the baseline gives only a point estimate. $r_t \sim N(0,(\hat\sigma_t^{roll})^2)$ is assumed — matching PF-SV's Gaussian innovation assumption, so PIT/KS results between baseline and PF-SV test the same joint hypothesis (see PIT/KS caveat).
-- **ACF diagnostics / Engle-Ng**: computed identically to the other models, using $z_t=\Phi^{-1}(u_t)$ from the baseline's own PIT transform above.
+**QLIKE / HV Coverage** use this value as $\hat\sigma_t^{model}$. Since the baseline has no posterior, HV Coverage's interval width comes entirely from the log-normal noise model (see metrics.md).
 
-#### Regression Setting
+- **Regression**: $\hat\sigma_\eta^{roll}$ fit once, globally, over the whole period.
+- **Sequential**: $\hat\sigma_\eta^{roll}$ estimated as an expanding, out-of-sample quantity per window — required to avoid look-ahead bias.
 
-$\hat\sigma_\eta^{roll}$ is fit once, globally, over the whole regression period. Results (QLIKE, RV coverage) are additionally broken down into pre-COVID, COVID, and post-COVID sub-periods, since COVID falls within this period and a pooled average can mask sub-period miscalibration.
+**PIT/KS** uses the day-$t$ instantaneous estimate, $\sigma_t^{roll}$, directly — no forecast extension needed. Scale of the assumed distribution: $r_t \sim N(0,(\hat\sigma_t^{roll})^2)$.
 
-#### Sequential Setting
+**ACF / Engle-Ng**: no baseline-specific treatment — computed identically to the other models.
 
-Two considerations arise that don't apply to the regression setting:
+## Sequential Expanding-Window Noise Estimation
 
-**Window-by-window breakdown, not COVID sub-periods**: the sequential period (2022–2025) contains no comparable single crisis event, so results are instead broken down into eight fixed six-month windows spanning the full period, in addition to pooled values — the same rationale as the COVID breakdown, applied as a general-purpose decomposition rather than one tied to a specific known event.
+$\hat\sigma_\eta$ is re-estimated at each window, using **all residuals accumulated so far** — starting from the regression period's residuals, then adding each subsequent window's own residuals only *after* that window has been evaluated. The estimate used for window $j$ never includes window $j$'s own data.
 
-**$\hat\sigma_\eta$ must be estimated sequentially, not fit once globally**: using one global $\hat\sigma_\eta$ for the entire sequential period would violate the out-of-sample principle underlying sequential updating — the noise estimate for an early window would be silently informed by residuals from windows that haven't happened yet. $\hat\sigma_\eta$ is instead computed as an expanding, past-only estimate: the first sequential window uses $\hat\sigma_\eta$ carried forward from the regression period; each subsequent window's $\hat\sigma_\eta$ is recomputed using all residuals accumulated from the regression period plus every *completed* sequential window — never including the window currently being evaluated. This expanding-window convention was chosen (over a fixed rolling window or exponential smoothing) for being parameter-free, avoiding an arbitrary window length or decay rate.
+This means the noise estimate genuinely grows in sample size as the sequential period progresses — window 1 uses only regression-period residuals; window 8 uses regression-period residuals plus windows 1 through 7's.
 
-This affects HV coverage only — $\hat\sigma_\eta$ has no role in the models' own fitting/forecasting process (EGARCH's MCMC recursion, PF-SV's particle filtering, or the baseline's point estimate); it is purely a post-hoc correction applied when checking the model's output against the empirical benchmark.
+### Potential Alternatives
 
-QLIKE, PIT/KS, and ACF/Engle-Ng diagnostics are otherwise unchanged from the regression setting — these operate per-day (or per-window as a simple aggregation of per-day values) and involve no noise-model fitting of their own.
+The two other considered approaches were:
+
+- **Rolling window** (use only the last $k$ windows' residuals, discarding older ones): more responsive to a genuine, permanent shift in noise level, but requires choosing $k$
+- **Exponential smoothing** (weight recent residuals more heavily via a decay parameter): smoother transition between old and new information, but introduces its own hyperparameter (the decay rate).
+
+The expanding window was chosen for simplicity (it is parameter free). 
 
 ## Priors
 
