@@ -32,7 +32,7 @@ The following are established methods in the volatility forecasting/evaluation l
 
 - **Realized kernels, bipower variation, subsampling/averaging estimators**: standard techniques for handling microstructure noise in high-frequency RV construction. Not yet relevant given the current daily-frequency data, but directly applicable once intraday data (see data.md) is incorporated.
 
-
+Add in EMWA, add in other metrics as well.
 ## Test Coverage Summary
 
 | Dimension being tested | Covered by | Not covered / gap |

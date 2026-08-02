@@ -544,3 +544,63 @@ Since PMCMC here runs a single chain (no multi-chain R-hat comparison available,
 
 DM Test 
 50 day return series plot
+
+- **Volatility persistence / long memory**: volatility shocks decay slowly, with effects lingering over many periods.
+
+
+### A Note on Terminology and a Key Assumption
+
+In the literature (e.g. Andersen-Bollerslev-Diebold-Labys), "realized volatility" typically refers to aggregating squared *intraday* returns to estimate a single day's variance, with consistency guaranteed via quadratic variation as sampling frequency increases — regardless of how volatility moves within the period. The construction used here — sample standard deviation of 21 *daily* returns — is a related but distinct estimator, more accurately termed **historical volatility**.
+
+This construction's validity depends on assuming volatility is constant across the window, directly in tension with the time-varying volatility EGARCH/SV are designed to capture. This is a limitation of the current daily-frequency data rather than a conceptual one: intraday-derived daily RV would not require this assumption (see extensions.md), and this project's PIT/return calibration test (evaluated day-by-day) already provides partial sensitivity to within-window timing errors that HV/QLIKE cannot see.
+
+**Note**: Patton's original robustness result compares daily forecasts against a daily proxy; this project extends it to window-aggregated quantities on both sides. Not explicitly proven for the aggregated case, but plausible via linearity of expectation, and standard practice. This extension does not depend on the classical high-frequency (quadratic-variation) construction specifically — only conditional unbiasedness of the proxy is required, which historical volatility satisfies under the constant-volatility assumption above. What is affected is not validity but **statistical power**: a proxy built from 21 daily returns is noisier than a high-frequency one, giving these tests less power to distinguish between models.
+
+
+### Why Historical Volatility (and Model RMS) Can't Detect Leverage Directly
+
+Both $\hat\sigma_t^{empirical}$ (sample variance) and $\hat\sigma_t^{model}$ (RMS of $\sigma_{t+i}^2$) are symmetric under reordering and sign-flipping of the underlying returns — squaring removes sign, summation discards sequencing. Neither can represent a conditional (sign-dependent) relationship like leverage; both only ever produce a single scalar summarizing average variance over the window.
+
+This means leverage miscalibration cannot be detected via the aggregate window-level comparison directly — it is only exposed indirectly, via the Engle-Ng sign-bias test (below, which operates on daily returns rather than the window-level HV comparison) or by comparing sub-period breakdowns (e.g. sustained one-directional crisis windows, where sign-dependent errors have no opposing-sign counterpart to cancel against).
+
+## Historical Volatility Coverage: Log-Normal Measurement Error
+
+<!-- FIXME: revisit this section for full correctness -->
+
+(Extended sign/size-bias tests add $r_{t-1}\mathbb{1}[r_{t-1}<0]$ and $r_{t-1}\mathbb{1}[r_{t-1}>0]$ as regressors, testing magnitude as well as sign.)
+
+Difference between directional persistence and persistence
+
+One relates to the volatility, the other one is related to time series diagnostics which are not directly connected to volatility.
+
+### Remaining Test Coverage Gaps
+
+| Dimension | Covered by | Gap |
+|---|---|---|
+| Window-average magnitude | QLIKE, HV comparison | — |
+| Window-average uncertainty | HV Coverage | — |
+| Day-level distributional calibration | PIT/KS | Can't separate level vs. shape error |
+| Directional/clustering error persistence | ACF of $z_t$, $z_t^2$ | — |
+| Leverage/asymmetry response | Engle-Ng | Structurally invisible to HV/QLIKE directly (see above) |
+| Tail-specific calibration (VaR) | *(not covered)* | Needs Kupiec/Christoffersen tests |
+| Multi-horizon path accuracy | *(not covered)* | Needs term-structure evaluation |
+| Economic/trading value | *(not covered)* | Needs backtested strategy |
+| Within-window timing accuracy | *(partial, via PIT)* | Needs intraday-derived daily RV for full resolution |
+
+### Filtering vs. Smoothing: What "Genuinely Out-of-Sample" Actually Requires
+
+Sequential updating's core idea is simple: each window carries forward the previous window's posterior, and propagates the recursion forward through the current window. The subtlety is that there are two distinct things this could mean, serving two different purposes:
+
+- **Forecasting** (before the window's data is available): propagate using *simulated* shocks, since the real returns for this window haven't happened yet from the perspective of a genuine forecast.
+- **Refitting** (after the window's data is observed): propagate using the *real* returns, to update the posterior for the next window.
+
+Using real returns to generate what's claimed to be a "forecast" would be a form of look-ahead bias — a day early in the window would be evaluated using a $\sigma_t$ that implicitly depends on later days' real returns within the same window (since the refitting recursion runs sequentially through that same window's real data). This project therefore keeps the two processes separate: forecast generation is used for *all* evaluation metrics (QLIKE, RV coverage, PIT, serial-dependence diagnostics); refitting is used only to prepare the next window's prior and produces no evaluation output itself.
+
+This means every evaluation metric shares the same limitation: the theoretically ideal quantity is $E[\sigma_{t+i}^2\mid\mathcal{F}_t]$, freshly conditioned at each real day $t$; what is computed instead is $E[\sigma_{t+i}^2\mid\mathcal{F}_{\text{window start}}]$ for the whole window at once, from one simulation per posterior draw. Forecast quality may degrade for days further from the window's start, since they use increasingly stale conditioning information. A fully rigorous version would branch a fresh, short forward simulation from each day's real, filtered state — computationally more expensive, and not implemented here.
+
+
+### Stationarity and the COVID Period
+
+EGARCH and SV assume $\sigma_t$ fluctuates around a stable long-run level $\sigma_\infty^2$, not that $\sigma_t$ is constant. This is compatible with volatility clustering and mean-reversion, but assumes a single, fixed $\sigma_\infty^2$ holds throughout the estimation period.
+
+COVID poses two potential challenges to this: (1) if COVID represents a genuine, lasting shift in the market's volatility regime rather than a temporary deviation, the single $\sigma_\infty^2$ assumed (elicited from the calmer 2013–2017 prior period) may not be the correct long-run target for the regression period as a whole; (2) even if stationarity holds in principle, the models' persistence parameters ($\beta$, $\phi$) determine how quickly volatility reverts, and COVID's unusually rapid spike may exceed the speed these parameters were calibrated to handle. Both are testable via the existing COVID sub-period evaluation (QLIKE, RV coverage) rather than assumed away

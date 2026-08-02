@@ -75,7 +75,7 @@ Each window involves two processes:
 1. **Forecast generation**: the recursion is propagated forward from the incoming posterior using *simulated* shocks (both a simulated return and the resulting $\sigma_t$ are generated together at each step, though only $\sigma_t$ is used further). This forecast feeds every evaluation metric (QLIKE, HV coverage, PIT, serial-dependence diagnostics).
 2. **Refitting**: the window is then refit on its actual returns — mechanically similar to the regression fit, but using priors derived from the previous window's posterior (fit to a parametric family: Beta for $\beta$, Gamma for $\nu_{shift}$, Normal/TruncatedNormal for the rest). NUTS produces an updated posterior; this step has no evaluation role of its own.
 
-The updated posterior and its end-of-window state seed the next window's forecast, and the process repeats. Both the volatility estimate and the noise correction ($\hat\sigma_\eta$) are computed with the same expanding, out-of-sample discipline — see theoretical.md.
+The updated posterior and its end-of-window state seed the next window's forecast, and the process repeats. Both the volatility estimate and the noise correction ($\hat\sigma_\eta$) are computed with the same expanding, out-of-sample discipline.
 
 ## Stochastic Volatility Model
 

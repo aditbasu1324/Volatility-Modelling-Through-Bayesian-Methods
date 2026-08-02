@@ -29,7 +29,7 @@ $$\text{Var}\left(\sum_{i=1}^h r_{t+i}\,\middle|\,\mathcal{F}_t\right) = \sum_{i
 
 **Consistency check (constant volatility)**: substituting $\sigma_{t+i}=\sigma$ gives $\sum_i E[\sigma_{t+i}^2\mid\mathcal{F}_t]=h\sigma^2$, confirming the model-side formula recovers the same $\sigma^2$ as the empirical (LLN) estimator:
 $$\hat\sigma_t^{model} = \sqrt{\frac{1}{h}\sum_{i=1}^h E[\sigma_{t+i}^2\mid\mathcal{F}_t]}$$
-Note: $\sigma_{t+i} \ne E[\sigma_{t+i}^2\mid\mathcal{F}_t]$ is addressed in implementation.md (forward simulation).
+Note: $\sigma_{t+i} \ne E[\sigma_{t+i}^2\mid\mathcal{F}_t]$ For simplicity, the F_{t} condition isn't considered so far (it wouldn't make sense for regression because all the data is looked at, for sequential it would require forward simulations)
 
 A fair comparison requires factoring error 1 into the model side too, via a log-normal noise model (below).
 

@@ -27,3 +27,4 @@ Coding error in MCMC with using prior_std,
 Additionally the PIT for sequential was based on implied paths not the forecasted paths
 
 changed a bunch of the sampling code, including addition of the method 1, method 2 discussion the 2000 as opposed to 8000 values carry forward
+Chaning the code for PMCMC to prevent alignment errors and preventing the other error with historical volatility
