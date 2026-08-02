@@ -103,10 +103,6 @@ Unlike EGARCH/SV, the "volatility equation" is a fixed, deterministic window fun
 - Not parametric → no in-sample/out-of-sample distinction; regression and sequential values computed identically.
 - Not Bayesian → no native credible intervals.
 
-### Why This Forecast Rule Is Enough
-
-Since $\sigma_{t+i}$ is treated as the same known value for every day in the window, there's no future uncertainty left to account for — the general requirement of averaging over possible future outcomes ($E[\sigma_{t+i}^2\mid\mathcal{F}_t]$) collapses to just $(\sigma_t^{roll})^2$, with nothing to simulate or average. This is also why the baseline structurally can't react to a genuine change in volatility within its own forecast window.
-
 ### Applying the Metrics to the Baseline
 
 Using the forecast rule, the historical volatility estimate reduces to a single value:
@@ -136,50 +132,48 @@ The two other considered approaches were:
 
 The expanding window was chosen for simplicity (it is parameter free). 
 
+### Bayesian Models
+
 ## Priors
 
 Before covering EGARCH and SV individually, it's worth establishing the concept and purpose of priors more generally.
 
-Priors are required for Bayesian models, since priors combined with the likelihood of new data are what generate posteriors.
+Priors are required for Bayesian models, since priors combined with the likelihood of new data are what generates posteriors.
 
 Theoretically, priors shouldn't matter much once enough data is available — the likelihood should dominate. In practice, however, these complex models require reasonably informative priors for the numerical methods (MCMC/NUTS) to converge well.
 
-Priors must also respect the model's **stationarity conditions**, otherwise the model isn't theoretically valid for prediction. Stationarity means the model is stable — that a well-defined long-run variance $\sigma_\infty^2$ exists.
+Priors must also respect the model's **stationarity conditions**, otherwise the model isn't theoretically valid for prediction. Stationarity here refers to the *model's parameters* being restricted so that a well-defined long-run variance $\sigma_\infty^2$ exists — not the traditional time-series sense of testing whether raw data itself is stationary. This will be guaranteed by the construction of the priors. 
 
-Priors are validated through **prior predictive checking** — simulating data from the prior alone and checking it looks plausible given the actual data being modeled.
+Priors are validated through **prior predictive checking** (explained later).
+
+## Method 1 vs. Method 2: Collapsing Multiple Draws
+
+Unlike the baseline model, Bayesian models produce a distribution of values. For most of the metrics, these posteriors need to be collapsed.
+
+**Method 1 — collapse after applying the metric**: apply the metric separately to each draw, then average the resulting values.
+$$\overline{M}^{\text{(Method 1)}} = \frac{1}{S}\sum_{s=1}^S M\left(x^{(s)}\right)$$ (treat each volatility path individually, compute the metric on this path and then average the result)
+
+**Method 2 — collapse before applying the metric**: average the draws first, then apply the metric once to the resulting single value.
+$$\overline{M}^{\text{(Method 2)}} = M\left(\frac{1}{S}\sum_{s=1}^S x^{(s)}\right)$$ (create a mean path based on the posterior values and then apply the metric to this)
+
+These methods produce different results. For each metric/decision, the correct method to choose will be reasoned through in its respective section with the exception of historical volatility since its required for prior predictive checking.
+
+## Historical Volatility
+
+**Method choice**: the target quantity is $E[\sigma_{t+i}^2\mid\mathcal{F}_t]$. Since the target is an expectation ,Method 2 is applied to $\sigma^{2}$ (not $\sigma$) i.e average $\sigma^{2}$ across draws and then apply the full historical volatility equation (defined in metrics.md)
 
 ## Prior Predictive Checking
 
-### What It Checks
+Volatility paths and returns are simulated using only draws from the prior distributions (no conditioning on any observed data), then compared against the actual prior-period (2013-2017) data.
 
-Before conditioning on any real data, a prior predictive check asks: **if only the prior were true, what range of outcomes would the model expect to see?** This is done by simulating many complete synthetic datasets purely from draws of the prior distribution, then comparing the resulting simulated data against the actual observed data.
-
-This is a check on the prior *alone* — no posterior or fitting is involved. If real, observed data falls far outside the range the prior implies as plausible, that's evidence the prior is misspecified (too tight, wrong location, or otherwise unreasonable) before any model fitting has even begun.
-
-### Why Full Path Simulation Is Required
-
-Since $\sigma_t$ in EGARCH/SV is recursively defined — $\sigma_{t+i}$ depends on $\sigma_{t+i-1}$, which depends on $\sigma_{t+i-2}$, and so on — and no data has been observed to pin down *any* of these values, every $\sigma_t$ in the prior predictive check is uncertain from the very first time step onward (unlike sequential forecasting, where $\sigma_t$ itself is already known and only $\sigma_{t+i}$ for $i>1$ is uncertain). This means a single deterministic path cannot represent "what the prior implies" — the prior implies an entire *distribution* over possible paths, which can only be characterized by simulating many independent paths forward, each with its own draw of parameters and shocks.
-
-For each simulated path $n$: draw parameters from the prior, then propagate the recursion forward one step at a time, drawing a fresh shock $z_{t+i}^{(n)}$ at each step and computing $\sigma_{t+i}^{(n)}$ from $\sigma_{t+i-1}^{(n)}$ and $z_{t+i}^{(n)}$. This forward propagation, repeated over many independent paths, automatically incorporates the full recursive chain back to $t$ — no separate backward or analytical step is needed, since each path is itself a valid, self-contained realization of the recursion.
-
-### Correct Order of Aggregation
-
-To compare against the historical volatility benchmark (a 21-day RMS-style quantity), the simulated paths must be aggregated in the correct order:
-
-$$\hat\sigma_t^{prior} = \sqrt{\frac{1}{h}\sum_{i=1}^h \underbrace{\frac{1}{N}\sum_{n=1}^N(\sigma_{t+i}^{(n)})^2}_{\text{average across paths, per time step}}}$$
-
-The average across simulated paths must be taken **before** the square root and window aggregation — averaging *after* taking the square root of each individual path's own RMS instead computes $\frac{1}{N}\sum_n\sqrt{\frac{1}{h}\sum_i(\sigma_{t+i}^{(n)})^2}$, which is systematically biased downward relative to the correct quantity, by Jensen's inequality ($E[\sqrt{X}] \le \sqrt{E[X]}$, since $\sqrt{\cdot}$ is concave). This is the same "expectation before aggregation" principle established for sequential forecasting — the model estimator averages *conditional variances* across uncertainty, not raw per-path point values.
-
-### Constructing a Plausibility Band (Not Just the Mean)
-
-The mean line above requires averaging across paths *before* window-aggregating (per the derivation above). A percentile band, however, requires the **opposite order**: since averaging across paths first would already collapse away the path-to-path variability the band is meant to display, each path must instead be window-aggregated **independently first** — computing that single path's own $\frac{1}{h}\sum_i (\sigma_{t+i}^{(n)})^2$ in isolation — and only *then* are percentiles taken across the resulting per-path values, at each fixed day.
-
-In short: the mean answers "what is the expected window-RMS volatility?" (average first, aggregate second); the band answers "how much do different simulated paths disagree about that window-RMS value?" (aggregate first, per path, then examine the resulting distribution across paths). These are not the same computation applied twice — they require genuinely different orders of operations, for the same reason the mean's own ordering matters (Jensen's inequality): collapsing the path dimension too early destroys the very information the other quantity needs.
+If the volatility paths look plausible, the priors are considered reasonable. This is checked visually:
+- **Historical Volatility from Simulated Paths**: This is compared to the actual historical volatility (it is computed through method 2 since it is historical volatility).
+- **Percentile Bands for the Simulated Historical Volatility**: The 5th/95th percentile is plotted, giving the plausible range implied by the prior. In order to generate percentile bands, each path is treated as separate, compute historical vol on each path (treating the expectation as just the point estimate on that path), and then take percentile values. This is a variant of method 1
 
 ### Additional Checks Alongside Path Comparison
 
-- **Rejection rate**: paths violating stationarity ($|\beta|\ge 1$ for EGARCH, analogously for SV) or producing explosive/invalid returns are discarded; the fraction rejected indicates how tightly the prior enforces stationarity.
-- **Return-level check**: raw simulated returns (no aggregation needed, since returns are never aggregated) are compared directly against actual daily returns, checking plausibility at the daily scale alongside the volatility-scale check above.
+- **Rejection rate**: paths violating stationarity or producing explosive/invalid returns are discarded; the fraction rejected indicates how tightly the prior enforces stationarity.
+- **Return-level check**: raw simulated returns are compared directly against actual daily returns, alongside the volatility-scale check above.
 
 ### General Approach to Developing Priors
 
@@ -187,18 +181,20 @@ In short: the mean answers "what is the expected window-RMS volatility?" (averag
 2. Use MLE fits (or suitable approximations, for the SV model) to determine mean parameters.
 3. Test variances via prior predictive checking.
 
+### Noise Computation for Bayesian Models
+
+$\hat\sigma_\eta$ represents the benchmark's own measurement noise, so it should be a single, shared value. Therefore the value is drawn directly from the mean historical volatility forecast.
+
 ## EGARCH(1,1)-t
 
 $$r_t = \mu + \epsilon_t, \quad \epsilon_t = \sigma_t z_t, \quad z_t \overset{\text{i.i.d.}}{\sim} t_\nu(0,1)$$
 $$\ln\sigma_t^2 = \omega + \alpha\left(|z_{t-1}| - \mathbb{E}|z_{t-1}|\right) + \gamma z_{t-1} + \beta\ln\sigma_{t-1}^2$$
 
-<!-- FIXME: confirm citation key — original EGARCH is Nelson (1991); verify the "Patton, 2011" attribution is not misapplied here (Patton's actual contribution is QLIKE robustness, not the EGARCH model itself) -->
+**Why EGARCH, specifically:** captures stylized facts the baseline structurally cannot.
 
-**Why EGARCH, specifically:**
-
-- **Leverage effect** ($\gamma$): captures the asymmetric response of volatility to positive vs. negative returns of equal magnitude — the key differentiator from symmetric GARCH-family models. This is the direct model-level mechanism whose absence was empirically confirmed for the rolling baseline via the Engle-Ng sign-bias test.
-- **Fat tails** ($t_\nu$ innovations): captures excess kurtosis in returns, relative to a Gaussian assumption — directly relevant to the PIT/KS shape assumption (see PIT/KS caveat: EGARCH uses a scaled Student-t $F_t$, not Normal).
-- **Sudden large price changes** ($\alpha$): captures the magnitude response of volatility to large shocks, regardless of sign.
+- **Leverage effect** ($\gamma$): asymmetric response to positive vs. negative returns — *Leverage effect* fact, tested via Engle-Ng (baseline confirmed to fail this).
+- **Fat tails** ($t_\nu$): excess kurtosis vs. Gaussian — *Shape* fact, tested via PIT/KS.
+- **Sudden large price changes** ($\alpha$): magnitude response to large shocks — **Volatility clustering** fact, tested via ACF of $z_t^2$.
 
 ### EGARCH Priors
 
@@ -214,51 +210,38 @@ $$\ln\sigma_t^2 = \omega + \alpha\left(|z_{t-1}| - \mathbb{E}|z_{t-1}|\right) + 
 where $\omega = (1-\beta)\log\sigma_\infty^2$ is derived by taking expectations of the log-variance recursion as $t\to\infty$.
 
 **Why these specific distribution families:**
-- $\beta \sim \text{Beta}(47,3)$: Beta's support is naturally bounded on $[0,1]$, matching the stationarity requirement $\beta<1$ — no separate truncation needed.
+- $\beta \sim \text{Beta}(47,3)$: Beta's support is naturally bounded on $[0,1]$, matching the stationarity requirement $\beta<1$
 - $\alpha \sim \mathcal{N}_{[0,\infty]}(\hat\alpha, 0.05^2)$: truncated at zero, since $\alpha$ (the magnitude-response coefficient) must be non-negative.
 - $\nu - 2.1 \sim \text{Gamma}(\cdot)$: shifted by 2.1 rather than 2, since Student-t requires $\nu>2$ for finite variance — the shift keeps the Gamma-distributed quantity strictly positive while ensuring the resulting $\nu$ always exceeds the theoretical minimum with a small safety margin.
 - $\sigma_\infty \sim \mathcal{N}_{[0,0.02]}(\sigma_{prior}, 0.003^2)$: truncated to be strictly positive, since it represents a standard deviation.
 
 ### Applying the Metrics to EGARCH
 
-The following applies to both the regression and sequential settings, unless noted otherwise below.
+Similar style to the baseline, with two additions specific to having a posterior: Method 1 vs. Method 2 (see above) governs how draws are collapsed, and RV Coverage must combine posterior uncertainty with noise uncertainty, not noise alone.
 
-- **QLIKE**: applies to $\hat\sigma_t^{model}$ (aggregated per the correct-order-of-aggregation principle above) vs. $\hat\sigma_t^{empirical}$ — no additional distributional assumption needed beyond the aggregation itself.
-- **HV Coverage**: unlike the baseline, EGARCH has a genuine posterior — the credible interval combines **both** the posterior's own spread (uncertainty in $\sigma_t$ given the model) **and** the log-normal noise correction ($\hat\sigma_\eta$, correcting for the empirical benchmark's own estimation noise). These are two distinct, additive sources of interval width, unlike the baseline where the noise correction alone determines the interval.
-- **PIT/KS**: uses a scaled Student-t $F_t$ (matching the model's own $t_\nu$ innovation assumption), not Normal — so a PIT/KS failure for EGARCH is more diagnostically informative than for the Gaussian-based models, since EGARCH already has flexibility to absorb ordinary fat-tail behavior via $\nu$ (see PIT/KS caveat).
-- **ACF diagnostics / Engle-Ng**: computed identically to the other models. Since $\gamma$ directly targets the leverage effect, EGARCH's Engle-Ng result is the direct empirical test of whether that mechanism actually works — contrast against the baseline's confirmed failure on this same test.
+The following applies to both regression and sequential unless noted otherwise.
 
-#### Regression Setting
+- **QLIKE**: Method 2 — uses $\hat\sigma_t^{model}$ (already averaged across draws, per Historical Volatility above).
+- **HV Coverage**: combines **both** posterior spread (uncertainty in $\sigma_t$ given the model) **and** the log-normal noise correction ($\hat\sigma_\eta$) — two distinct, additive sources of interval width, unlike the baseline where noise alone determines it.
+- **PIT/KS**: Method 1 — for each draw $s$, compute $u_t^{(s)}=F_t^{(s)}(r_t)$ using a scaled Student-$t_\nu$ $F_t$ (matching the model's own innovation assumption); average $u_t^{(s)}$ across draws to get one $u_t$ per day; run a single KS test on the resulting $\{u_t\}$ series. A failure here is diagnostically informative about both level *and* whether the $\nu$/fat-tails parameter is well-calibrated (see PIT/KS caveat).
+- **ACF diagnostics / Engle-Ng**: computed from the same $u_t$ series above ($z_t=\Phi^{-1}(u_t)$) — Engle-Ng specifically tests whether the leverage parameter ($\gamma$) is working as intended.
 
-$\sigma_t$ for every day is obtained directly from the posterior fit via the recursion run through the actual, fully-observed regression-period returns (see MCMC / mcmc.md) — genuinely in-sample, with no forward simulation involved, since no future uncertainty exists relative to any day within an already-observed period. $\hat\sigma_t^{model}$ is then constructed by averaging $\sigma_t^2$ across posterior draws *before* the window-RMS aggregation (see Correct Order of Aggregation), analogous to the prior predictive check but conditioning on the posterior rather than the prior.
+Unlike the baseline, regression and sequential genuinely differ here — see below.
 
-#### Sequential Setting
+### Regression and Sequential Settings
 
-Two distinct processes run in parallel each window (see Filtering vs. Smoothing, above, for the underlying distinction):
+Posterior samples for EGARCH and SV are obtained via MCMC (specifically NUTS) — see sampling.md for the full theoretical justification (Markov chains, detailed balance, Metropolis-Hastings, and how NUTS extends this). The general regression/sequential strategy is in procedural.md; implementation.md covers the JAX/NumPyro-specific code.
 
-- **Forecast generation** (for QLIKE/RV coverage): forward-simulated from the incoming posterior only, using fresh simulated shocks — no real data from the current window is used. This produces $\hat\sigma_t^{model}$ for the whole window from a single block simulation, per the documented filtering-vs-smoothing limitation.
-- **Filtering** (for PIT/serial-dependence): the recursion is run through the window's real, realized returns one step at a time, producing genuine day-by-day $\sigma_t$ estimates conditioned only on data up to each respective day.
+### Limitations of This Method
 
-Both the window's forecast noise correction ($\hat\sigma_\eta$, expanding as described for the baseline) and the posterior itself are updated only using information available up to the start of each window — never the window's own data — preserving the same out-of-sample discipline established for the baseline, applied here to a genuinely fitted model rather than a fixed formula.
+Here all the limitations of the method are listed.
 
-### EGARCH-Specific Sequential Mechanics
+### Limitations of the Method
 
-Carrying the posterior forward window-to-window requires two separate things to be propagated, for different purposes:
-
-- **Volatility state** ($\sigma_T$ at the end of the previous window): carried forward **per posterior draw**, not as a single point estimate — each draw's own end-of-window state (obtained from that same draw's own parameters and own realized path) seeds that draw's own forward simulation into the next window. This preserves genuine posterior uncertainty in the starting condition, rather than collapsing to one "average" starting point.
-- **Parameter posterior**: the previous window's posterior samples are approximated by fitting them to the same parametric families used for the original priors (Beta for $\beta$, Gamma for $\nu_{shift}$, Normal/TruncatedNormal for the rest, via method-of-moments or maximum-likelihood fits to the retained samples). This approximate distribution becomes the new window's prior, and NUTS is re-run on that window's data alone to produce an updated posterior.
-
-This is an **approximate**, not exact, form of sequential Bayesian updating: exact conjugate updating would require the prior and likelihood to combine analytically into a closed-form posterior of the same family, which does not hold for EGARCH's nonlinear recursion. Approximating the previous posterior by a parametric fit, then treating that as a fresh prior for a new NUTS run, is a standard practical substitute — it loses some fidelity relative to carrying the full previous posterior forward exactly, but avoids needing to refit the entire history from scratch at every window.
-
-## MCMC
-
-Posterior samples for EGARCH and SV are obtained via MCMC (specifically NUTS). See sampling.md for the full theoretical justification (why MCMC produces valid posterior samples, Markov chains, detailed balance, the Metropolis-Hastings construction, and how NUTS extends this).
-
-### Stationarity and the COVID Period
-
-EGARCH and SV assume $\sigma_t$ fluctuates around a stable long-run level $\sigma_\infty^2$, not that $\sigma_t$ is constant. This is compatible with volatility clustering and mean-reversion, but assumes a single, fixed $\sigma_\infty^2$ holds throughout the estimation period.
-
-COVID poses two potential challenges to this: (1) if COVID represents a genuine, lasting shift in the market's volatility regime rather than a temporary deviation, the single $\sigma_\infty^2$ assumed (elicited from the calmer 2013–2017 prior period) may not be the correct long-run target for the regression period as a whole; (2) even if stationarity holds in principle, the models' persistence parameters ($\beta$, $\phi$) determine how quickly volatility reverts, and COVID's unusually rapid spike may exceed the speed these parameters were calibrated to handle. Both are testable via the existing COVID sub-period evaluation (QLIKE, RV coverage) rather than assumed away.
+- **$\mathcal{F}_t$ approximation** (sequential forecasting): already covered under Historical Volatility — the fix is implementation-heavy (per-day forward simulation).
+- **Approximate posterior updating** (sequential refitting): each window's posterior is refit to a parametric family (Beta/Gamma/Normal) rather than carried forward exactly, since no exact conjugate update exists for this nonlinear recursion — this is a standard, practical substitute that can't be fixed
+- **Numerical/MCMC approximation error**: finite posterior samples introduce Monte Carlo error beyond the idealized, exact posterior
+- **Fixed-$\hat\beta$ stability trade-off**: $\omega$ uses the MLE point estimate $\hat\beta_{egarch}$, not each draw's own sampled $\beta$, to avoid divergences during NUTS sampling — meaning individual draws' implied long-run variance can deviate slightly from $\sigma_\infty^2$ (see implementation.md, Known Approximations).
 
 ## Stochastic Volatility (SV) Model
 
