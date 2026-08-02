@@ -236,8 +236,6 @@ Posterior samples for EGARCH and SV are obtained via MCMC (specifically NUTS) �
 
 Here all the limitations of the method are listed.
 
-### Limitations of the Method
-
 - **$\mathcal{F}_t$ approximation** (sequential forecasting): already covered under Historical Volatility — the fix is implementation-heavy (per-day forward simulation).
 - **Approximate posterior updating** (sequential refitting): each window's posterior is refit to a parametric family (Beta/Gamma/Normal) rather than carried forward exactly, since no exact conjugate update exists for this nonlinear recursion — this is a standard, practical substitute that can't be fixed
 - **Numerical/MCMC approximation error**: finite posterior samples introduce Monte Carlo error beyond the idealized, exact posterior

@@ -106,3 +106,11 @@ def plot_acf_diagnostics(z, lags=20, label=""):
     axes[1].set_title(f"ACF of $z_t^2$ (squared) — {label}")
     plt.tight_layout()
     plt.show()
+
+
+def print_hv_coverage_posterior(sigma_eta, results, label=""):
+    print(f"{label} — Measurement noise std: {sigma_eta:.4f}")
+    print("Coverage at different CI levels (posterior + noise):")
+    print("-" * 40)
+    for level, coverage in results.items():
+        print(f"{level}% CI coverage: {coverage:.2%}")   

@@ -121,3 +121,60 @@ def sign_bias_test(z, returns, dates):
     X = sm.add_constant(aligned['sign_lag'])
     model = sm.OLS(aligned['z_sq'], X).fit(cov_type='HC3')
     return model
+def sigma_to_hv_correct(sigma_paths, h=21):
+    '''Correct order: average sigma^2 ACROSS PATHS first (per timestep), then RMS-aggregate over the window.'''
+    mean_sigma_sq_per_t = np.mean(sigma_paths**2, axis=0)   # E[sigma_{t+i}^2] at each t, across paths
+    rv = pd.Series(mean_sigma_sq_per_t).rolling(h).mean().shift(-h+1)  # window average, forward-looking
+    return np.sqrt(rv).values
+
+def sigma_sq_windowed_per_path(sigma_paths, h=21):
+    '''Per-path windowed mean of sigma^2 (no sqrt), for percentile-band purposes.'''
+    result = np.zeros((sigma_paths.shape[0], sigma_paths.shape[1]))
+    for n_idx in range(sigma_paths.shape[0]):
+        result[n_idx] = pd.Series(sigma_paths[n_idx]**2).rolling(h).mean().shift(-h+1).values
+    return result
+
+def hv_per_draw_windowed(sigma_posterior, h=21):
+    '''Per-draw windowed HV (sqrt applied), shape (S, T) — same as sigma_sq_windowed_per_path but with sqrt.'''
+    return np.sqrt(sigma_sq_windowed_per_path(sigma_posterior, h=h))
+
+def hv_coverage_posterior(hv_per_draw, actual, sigma_eta, level=90):
+    '''Combined posterior-spread + log-normal noise interval, via simulation (Order A).'''
+    S, T = hv_per_draw.shape
+    noise = np.random.normal(0, sigma_eta, size=(S, T))
+    noisy_hv = hv_per_draw * np.exp(noise)
+
+    pct = (100 - level) / 2
+    lower = np.percentile(noisy_hv, pct, axis=0)
+    upper = np.percentile(noisy_hv, 100 - pct, axis=0)
+    inside = (actual >= lower) & (actual <= upper)
+    return lower, upper, inside            
+
+def hv_coverage_posterior_multilevel(hv_per_draw, actual, sigma_eta, levels=[50, 60, 70, 80, 85, 90, 95, 99]):
+    '''Combined posterior-spread + log-normal noise coverage, at multiple CI levels — one shared noise draw.'''
+    S, T = hv_per_draw.shape
+    noise = np.random.normal(0, sigma_eta, size=(S, T))   # simulated once, reused for all levels
+    noisy_hv = hv_per_draw * np.exp(noise)
+
+    results = {}
+    for level in levels:
+        pct = (100 - level) / 2
+        lower = np.percentile(noisy_hv, pct, axis=0)
+        upper = np.percentile(noisy_hv, 100 - pct, axis=0)
+        inside = (actual >= lower) & (actual <= upper)
+        results[level] = np.mean(inside)
+    return results
+
+def compute_pit_posterior(returns, sigma_per_draw, dist='t', df=None):
+    '''Method 1: compute u_t per posterior draw, then average across draws.
+    sigma_per_draw: shape (S, T) — raw per-day sigma_t, one row per draw.'''
+    S, T = sigma_per_draw.shape
+    u_per_draw = np.zeros((S, T))
+    for s in range(S):
+        if dist == 't':
+            u_per_draw[s] = scipy_stats.t.cdf(returns / sigma_per_draw[s], df=df)
+        else:
+            u_per_draw[s] = scipy_stats.norm.cdf(returns / sigma_per_draw[s])
+    u_t = np.mean(u_per_draw, axis=0)   # average across draws — Method 1
+    ks_stat, p_value = scipy_stats.kstest(u_t, 'uniform')
+    return u_t, ks_stat, p_value
