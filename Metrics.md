@@ -4,9 +4,9 @@
 
 Unlike return forecasting, where the true outcome is directly observable, volatility is fundamentally latent — even with perfect data, $\sigma_t^{true}$ is never directly observed, only proxied. There is no single "final" test analogous to comparing a return forecast against the realized return.
 
-Each metric below is an indirect method of assessing model quality, each with its own blind spots. Overall, these metrics build up a composite picture of model quality that no single test could give alone — disagreement between metrics is itself informative (e.g. passing QLIKE but failing PIT/KS points to a shape or timing issue rather than a magnitude one).
+Each metric below is an indirect method of assessing model quality, each with its own blind spots. Overall, these metrics build up a composite picture of model quality that no single test could give alone — disagreement between metrics is itself informative (e.g. passing QLIKE but failing PIT/KS points to a shape issue rather than a magnitude one).
 
-## Historical Volatility (Benchmark)
+## Historical Volatility 
 
 ### The Goal
 Under constant volatility within the window, conditional on $\mathcal{F}_t$: $\text{Var}(r_{t+1},...,r_{t+h}\mid\mathcal{F}_t) = \sigma^2$. Two estimators of this target are constructed — empirical (from raw returns) and model-based — and compared.
@@ -29,7 +29,7 @@ $$\text{Var}\left(\sum_{i=1}^h r_{t+i}\,\middle|\,\mathcal{F}_t\right) = \sum_{i
 
 **Consistency check (constant volatility)**: substituting $\sigma_{t+i}=\sigma$ gives $\sum_i E[\sigma_{t+i}^2\mid\mathcal{F}_t]=h\sigma^2$, confirming the model-side formula recovers the same $\sigma^2$ as the empirical (LLN) estimator:
 $$\hat\sigma_t^{model} = \sqrt{\frac{1}{h}\sum_{i=1}^h E[\sigma_{t+i}^2\mid\mathcal{F}_t]}$$
-Note: $\sigma_{t+i} \ne E[\sigma_{t+i}^2\mid\mathcal{F}_t]$ For simplicity, the F_{t} condition isn't considered so far (it wouldn't make sense for regression because all the data is looked at, for sequential it would require forward simulations)
+Note: $\sigma_{t+i} \ne E[\sigma_{t+i}^2\mid\mathcal{F}_t]$ For simplicity, the $\mathcal{F}_t$ condition isn't considered so far (it wouldn't make sense for regression because all the data is looked at, for sequential it would require forward simulations)
 
 A fair comparison requires factoring error 1 into the model side too, via a log-normal noise model (below).
 
@@ -46,9 +46,10 @@ $$\hat\sigma_t^{empirical} = \sigma_t^{true}\cdot\exp(\eta_t), \quad \eta_t\sim 
 
 **What $\hat\sigma_\eta$ is meant to represent**: the estimation noise in $\hat\sigma_t^{empirical}$ alone, relative to the unobservable $\sigma_t^{true}$.
 
-**Why $\hat\sigma_t^{model}$ substitutes for $\sigma_t^{true}$**: $\sigma_t^{true}$ is never observable — $\hat\sigma_t^{model}$ is the best available stand-in, a forced necessity rather than an independently justified choice.
+$\hat\sigma_t^{model}$ substitutes for $\sigma_t^{true}$** since $\sigma_t^{true}$ is never observable
 
-**What $\hat\sigma_\eta$ actually estimates**: writing $\hat\sigma_t^{model}=\sigma_t^{true}\cdot\exp(\epsilon_t^{model})$,
+**What $\hat\sigma_\eta$ actually estimates**: writing $\hat\sigma_t^{model}=\sigma_t^{true}\cdot\exp(\epsilon_t^{model})$
+
 $$\log\hat\sigma_t^{empirical}-\log\hat\sigma_t^{model} = \eta_t - \epsilon_t^{model} \quad(\log\sigma_t^{true}\text{ cancels})$$
 $$\text{Var}(\eta_t-\epsilon_t^{model}) = \sigma_\eta^2 + \text{Var}(\epsilon_t^{model}) - 2\,\text{Cov}(\eta_t,\epsilon_t^{model})$$
 
@@ -58,7 +59,7 @@ The computed $\hat\sigma_\eta$ (assuming $\eta_t\perp\epsilon_t^{model}$) satisf
 
 1. **Inseparability** — this is a *combined* estimate of benchmark noise and model error, not benchmark noise alone; the two cannot be separated from this single computable quantity.
 2. **Weak independence justification** — $\eta_t$ (finite-sample noise) and $\epsilon_t^{model}$ (model misspecification) arise from mechanically distinct sources, giving informal grounds for low average correlation, but this isn't strongly established.
-3. **Likely directional failure during crises** — both plausibly **rise together during crisis periods** (a regime shift can stress both the constant-volatility assumption and the model's functional form at once), meaning $\hat\sigma_\eta$ likely *understates* the true combined variance exactly when it matters most. 
+3. **Likely directional failure during crises** — both plausibly **rise together during crisis periods** (a regime shift can stress both the constant-volatility assumption and the model's functional form at once), meaning $\hat\sigma_\eta$ likely *understates* the true combined variance.
 
 ### Does More Data Help?
 

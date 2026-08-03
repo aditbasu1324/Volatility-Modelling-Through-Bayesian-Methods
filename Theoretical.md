@@ -10,7 +10,7 @@ This file stores information on the theoretical parts of this project.
 
 ## Stylized Facts of Returns and Volatility
 
-Before introducing specific metrics, it's worth stating the empirical properties of returns/volatility that any good model — and by extension, any good test of that model — needs to engage with:
+Before introducing specific metrics, it makes sense to understand the empirical properties of volatility.
 
 - **Level**: volatility is time-varying and its magnitude matters directly (position sizing, option pricing).
 - **Uncertainty**: volatility is never known with certainty, even by the model itself — a legitimate model should express a distribution, not just a point estimate.
@@ -18,7 +18,7 @@ Before introducing specific metrics, it's worth stating the empirical properties
 - **Volatility clustering**: large changes tend to follow large changes (of either sign) — formally, raw returns show little autocorrelation, but squared/absolute returns show strong, persistent autocorrelation. This is the single most fundamental stylized fact motivating GARCH-family and stochastic volatility models.
 - **Leverage effect**: negative returns tend to increase future volatility more than positive returns of equal magnitude.
 
-Each metric below is designed to test whether a model has correctly captured one or more of these properties — not as an arbitrary battery of statistical procedures, but as a direct check against the known empirical structure of real markets.
+The metrics below are designed to test whether a model has correctly captured one or more of these properties.
 
 ## Metrics Overview
 
@@ -43,7 +43,7 @@ The different metrics used and their purposes are listed below.
 ### Return Distribution Calibration
 **Point**: checks if the model's implied return distribution matches the actual return distribution — a day-by-day test, independent of the window-level comparison above and of the noise correction used in HV coverage.
 
-- **PIT/KS**: tests whether the model's day-by-day claimed uncertainty matches what actually happens (jointly tests volatility level and assumed shape — can't separate the two)
+- **PIT/KS**: tests whether the model's day-by-day claimed uncertainty matches what actually happens (jointly tests volatility level and assumed shape)
 - KS test / histogram: formal and visual versions of the same check.
 
 ### Serial Dependence Diagnostics
@@ -168,7 +168,7 @@ Volatility paths and returns are simulated using only draws from the prior distr
 
 If the volatility paths look plausible, the priors are considered reasonable. This is checked visually:
 - **Historical Volatility from Simulated Paths**: This is compared to the actual historical volatility (it is computed through method 2 since it is historical volatility).
-- **Percentile Bands for the Simulated Historical Volatility**: The 5th/95th percentile is plotted, giving the plausible range implied by the prior. In order to generate percentile bands, each path is treated as separate, compute historical vol on each path (treating the expectation as just the point estimate on that path), and then take percentile values. This is a variant of method 1
+- **Percentile Bands for the Simulated Historical Volatility**: The 5th/95th percentile is plotted, giving the plausible range implied by the prior. In order to generate percentile bands, each path is treated as separate, compute historical vol on each path (treating the expectation as just the point estimate on that path), and then take percentile values. This is a variant of method 1.
 
 ### Additional Checks Alongside Path Comparison
 
@@ -192,8 +192,8 @@ $$\ln\sigma_t^2 = \omega + \alpha\left(|z_{t-1}| - \mathbb{E}|z_{t-1}|\right) + 
 
 **Why EGARCH, specifically:** captures stylized facts the baseline structurally cannot.
 
-- **Leverage effect** ($\gamma$): asymmetric response to positive vs. negative returns — *Leverage effect* fact, tested via Engle-Ng (baseline confirmed to fail this).
-- **Fat tails** ($t_\nu$): excess kurtosis vs. Gaussian — *Shape* fact, tested via PIT/KS.
+- **Leverage effect** ($\gamma$): asymmetric response to positive vs. negative returns — **Leverage effect** fact, tested via Engle-Ng (baseline confirmed to fail this).
+- **Fat tails** ($t_\nu$): excess kurtosis vs. Gaussian — **Shape** fact, tested via PIT/KS.
 - **Sudden large price changes** ($\alpha$): magnitude response to large shocks — **Volatility clustering** fact, tested via ACF of $z_t^2$.
 
 ### EGARCH Priors
@@ -217,7 +217,7 @@ where $\omega = (1-\beta)\log\sigma_\infty^2$ is derived by taking expectations 
 
 ### Applying the Metrics to EGARCH
 
-Similar style to the baseline, with two additions specific to having a posterior: Method 1 vs. Method 2 (see above) governs how draws are collapsed, and RV Coverage must combine posterior uncertainty with noise uncertainty, not noise alone.
+Similar style to the baseline, with two additions specific to having a posterior: Method 1 vs. Method 2 (see above) governs how draws are collapsed, and HV Coverage must combine posterior uncertainty with noise uncertainty, not noise alone.
 
 The following applies to both regression and sequential unless noted otherwise.
 
@@ -250,19 +250,9 @@ $$\ln\sigma_t^2 = \mu_h + \phi(\ln\sigma_{t-1}^2 - \mu_h) + \eta_t, \quad \eta_t
 
 **Why SV, specifically:**
 
-- **Genuine stochastic volatility**: unlike EGARCH, where $\sigma_t$ is a deterministic function of information available at $t-1$, SV allows an independent random shock $\eta_t$ at time $t$ itself — volatility has its own source of randomness, not fully determined by past returns. This more directly represents latent volatility uncertainty, rather than treating $\sigma_t$ as something perfectly computable once past data is known.
-- **Trade-off**: this added flexibility comes at the cost of not explicitly capturing several properties EGARCH does — SV as specified here has no direct leverage term (no asymmetric response to positive vs. negative returns) and no fat-tailed innovation distribution (Gaussian $\epsilon_t$, unlike EGARCH's Student-$t_\nu$). Whether this matters is directly testable via the Engle-Ng sign-bias test and PIT/KS shape check, exactly as for the baseline and EGARCH.
+- **Genuine stochastic volatility**: unlike EGARCH's deterministic $\sigma_t$, SV adds an independent shock $\eta_t$ at time $t$ itself — volatility has its own source of randomness, more directly representing latent uncertainty.
 
-**Stationarity condition**: $|\phi| < 1$ — required for the latent log-variance process to have a well-defined long-run mean $\mu_h$ and finite variance, analogous to EGARCH's $|\beta|<1$ requirement (see Priors, Stationarity and the COVID Period).
-
-### Why Particle MCMC (PMCMC) Is Required
-
-Unlike EGARCH, where $\sigma_t$ is a deterministic function of observed returns (so the likelihood $p(\text{data}\mid\theta)$ is directly computable), SV's $\sigma_t$ depends on the entire latent path of shocks $\eta_1,...,\eta_t$ — none of which are directly observed. Computing the exact likelihood would require integrating out this entire latent path:
-$$p(\text{data}\mid\theta) = \int p(\text{data}\mid\{\sigma_t\},\theta)\,p(\{\sigma_t\}\mid\theta)\,d\{\sigma_t\}$$
-an integral over a high-dimensional latent trajectory, intractable in closed form — a fundamentally harder problem than EGARCH's likelihood, which needed no such integration since $\sigma_t$ was fully determined by observed data alone.
-
-PMCMC (see sampling.md) resolves this by using a **particle filter** to produce an unbiased *estimate* of this intractable likelihood, then plugging that estimate into the same Metropolis-Hastings acceptance framework already established — a specific theoretical result (Andrieu, Doucet & Holenstein, 2010) guarantees this still yields exact posterior samples, despite the likelihood itself being only estimated rather than computed exactly.
-
+**Stationarity condition**: $|\phi| < 1$, required for a well-defined long-run mean $\mu_h$ and finite variance — analogous to EGARCH's $|\beta|<1$ (see Priors).
 
 ### Stochastic Volatility Priors
 
@@ -274,3 +264,44 @@ PMCMC (see sampling.md) resolves this by using a **particle filter** to produce 
 | $\mu_r$ | $\mathcal{N}(\hat\mu_r,\ 0.001^2)$ |
 
 where $\mu_h = \log\sigma_\infty^2$ is derived by taking expectations of the latent volatility recursion as $t\to\infty$.
+
+### Why a Linearized Approximation for SV's Priors
+
+SV's likelihood is intractable in closed form (see Why PMCMC Is Required), so there's no direct MLE-style fit available for prior-centering the way EGARCH has. A standard workaround: taking $\ln r_t^2$ turns the nonlinear observation equation into an approximately linear, approximately Gaussian state-space model, letting a standard Kalman filter produce quick, approximate point estimates for prior-centering — not an exact fit, but a reasonable and inexpensive starting point (see metrics/implementation notes on which resulting values are trustworthy vs. not).
+
+### Goal of Comparing EGARCH and SV
+
+EGARCH and SV differ along two separate design choices:
+1. **Explicit stylized facts**: EGARCH directly encodes leverage ($\gamma$), fat tails ($t_\nu$), and shock magnitude response ($\alpha$); SV encodes none of these.
+2. **Deterministic vs. latent volatility**: EGARCH's $\sigma_t$ is fully determined by past information; SV's has its own independent shock $\eta_t$ each step.
+
+Overall performance across metrics will help isolate which addition is more impactful.
+
+### Why Particle MCMC (PMCMC) Is Required
+
+Unlike EGARCH, where $\sigma_t$ is a deterministic function of observed returns (so the likelihood $p(\text{data}\mid\theta)$ is directly computable), SV's $\sigma_t$ depends on the entire latent path of shocks $\eta_1,...,\eta_t$ — none of which are directly observed. Computing the exact likelihood would require integrating out this entire latent path:
+$$p(\text{data}\mid\theta) = \int p(\text{data}\mid\{\sigma_t\},\theta)\,p(\{\sigma_t\}\mid\theta)\,d\{\sigma_t\}$$
+intractable in closed form (too hard to compute as dimensionality grows with no of observations)
+
+PMCMC (see sampling.md) resolves this by using a **particle filter** to produce an unbiased *estimate* of this intractable likelihood, then plugging that estimate into the same Metropolis-Hastings acceptance framework already established — a specific theoretical result (Andrieu, Doucet & Holenstein, 2010) guarantees this still yields exact posterior samples, despite the likelihood itself being only estimated rather than computed exactly.
+
+### Regression and Sequential Settings
+
+Posterior samples for SV are obtained via PMCMC (see sampling.md for why a particle filter is needed here specifically, and the pseudo-marginal justification). The general regression/sequential strategy is in procedural.md; implementation.md covers the particle filter and PMCMC code.
+
+### Applying the Metrics to SV
+
+Same structure as EGARCH (see Applying the Metrics to EGARCH) — Method 2 for QLIKE/HV Coverage, Method 1 for PIT. The metrics are applied in the same way (considering the normal distribution of SV for PIT)
+
+### SV-Specific Sequential Mechanics
+
+The *completed* filtered path for one parameter draw (after the particle filter has run through the entire window) plays the same role as EGARCH's per-draw $\sigma_t$ path — one full trajectory per retained posterior draw, treated identically downstream (Method 2, coverage, PIT).
+
+This equivalence does not hold at an individual time step during filtering. EGARCH's $S$ posterior draws are mutually independent throughout — each comes from an independent NUTS sample, with the whole path computed deterministically from it. SV's particles are instead **resampled** and are duplicated to reflect their weights (see sampling.md, Particle Filter). At any single time step, the $N$ particles are therefore *not* $N$ independent pieces of information; only the full, completed per-draw path (used in Applying the Metrics to SV, above) is.
+
+### Limitations of the Method
+
+- **$\mathcal{F}_t$ approximation** (sequential forecasting): same limitation as EGARCH — the forecast is block-simulated per window rather than re-conditioned at every real day (see Historical Volatility).
+- **Approximate posterior updating** (sequential refitting): same limitation as EGARCH — no exact conjugate update exists for this nonlinear latent-state model, so each window's posterior is approximated via a parametric refit rather than carried forward exactly.
+- **Particle filter approximation**: the likelihood itself is only ever an unbiased *estimate*, not an exact value — more particles reduce this noise but never eliminate it; too few particles can slow PMCMC's mixing even though correctness is preserved (see sampling.md).
+- **Weaker sampler**: PMCMC uses plain random-walk Metropolis-Hastings, not gradient-informed NUTS, since the particle filter's likelihood estimate isn't differentiable — this generally mixes more slowly, checked via the ACF-based single-chain diagnostics (see interpretation.md) rather than the multi-chain R-hat available for EGARCH.

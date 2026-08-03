@@ -178,3 +178,25 @@ def compute_pit_posterior(returns, sigma_per_draw, dist='t', df=None):
     u_t = np.mean(u_per_draw, axis=0)   # average across draws — Method 1
     ks_stat, p_value = scipy_stats.kstest(u_t, 'uniform')
     return u_t, ks_stat, p_value
+
+def hv_coverage_sequential_posterior(hv_per_draw, actual, dates, window_boundaries, sigma_eta_by_window, level=90):
+    '''Combined posterior-spread + noise coverage, using a different sigma_eta per window (expanding).'''
+    S, T = hv_per_draw.shape
+    inside = np.zeros(T, dtype=bool)
+    lower_full = np.zeros(T)
+    upper_full = np.zeros(T)
+    pct = (100 - level) / 2
+
+    for i, (start_idx, end_idx) in enumerate(period_indices(dates, window_boundaries)):
+        sigma_eta_i = sigma_eta_by_window[f"window_{i+1}"]
+        window_hv_per_draw = hv_per_draw[:, start_idx:end_idx]
+        noise = np.random.normal(0, sigma_eta_i, size=window_hv_per_draw.shape)
+        noisy_hv = window_hv_per_draw * np.exp(noise)
+
+        lower = np.percentile(noisy_hv, pct, axis=0)
+        upper = np.percentile(noisy_hv, 100 - pct, axis=0)
+        lower_full[start_idx:end_idx] = lower
+        upper_full[start_idx:end_idx] = upper
+        inside[start_idx:end_idx] = (actual[start_idx:end_idx] >= lower) & (actual[start_idx:end_idx] <= upper)
+
+    return lower_full, upper_full, inside

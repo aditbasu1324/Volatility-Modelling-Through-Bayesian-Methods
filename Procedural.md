@@ -79,6 +79,8 @@ The updated posterior and its end-of-window state seed the next window's forecas
 
 ## Stochastic Volatility Model
 
+Priors for SV are centered using a preliminary linearized (Kalman filter) fit on prior-period data, analogous to EGARCH's MLE-based centering — see theoretical.md for why this approach is used, implementation.md for the code.
+
 A Standard Stochastic Volatility model, fit via Particle MCMC (PMCMC) — see theoretical.md/sampling.md for the model definition and why PMCMC is required, and implementation.md for how this is coded.
 
 Follows the same regression/sequential structure as EGARCH (see Regression Conditions / Sequential Updating): priors developed on 2013-2017 data, fit via PMCMC on regression-period data, then sequentially updated across the 2022-2025 windows.

@@ -66,6 +66,16 @@ Next window's start: `ls2_current_seq = np.log(samples_w["sigma"][:, -1]**2)` �
 ### Approximate Prior Updating
 `fit_beta_params`/`fit_gamma_params` approximate posterior samples with a parametric distribution (method-of-moments for Gamma; MLE fit for Beta) — a cheap substitute for exact conjugate updating, which isn't available for this nonlinear recursion (see theoretical.md).
 
+## SV: Prior Centering via Linearized (Kalman) Approximation
+
+Since SV's likelihood is intractable (see Why PMCMC Is Required, theoretical.md), there's no direct MLE-style fit available for prior-centering the way EGARCH has. Instead, a standard linearization is used: taking $\ln r_t^2$ turns the (demeaned) observation equation into an approximately linear, approximately Gaussian state-space model, letting a standard Kalman filter (`UnobservedComponents`, fit on prior-period data) produce quick, approximate point estimates for prior-centering.
+
+**The $+1.27$ correction**: $\ln\epsilon_t^2$ (for $\epsilon_t\sim N(0,1)$) is not itself Gaussian — it follows a log-chi-squared distribution with mean $\approx -1.27$, not 0. The Kalman filter's fitted state is corrected by adding this constant back (`kf_vol = sqrt(exp(filtered_state + 1.27))`) to remove this known bias before using the result to center priors.
+
+**Which fitted values are actually reusable**:
+- `mu_kf` (mean of the filtered state) and `sigma_eta_kf` (`sqrt(sigma2.level)`) are reasonable, reusable prior-centering values — both estimate genuine SV-model quantities, just via a linear approximation.
+- `sigma_v_kf` (`sqrt(sigma2.irregular)`) is **not** reusable — under the true model, $\ln\epsilon_t^2$'s variance ($\pi^2/2$) is a known, fixed constant, not something that should be freely estimated. This parameter's fitted value mostly reflects the linearization's own approximation error rather than a genuine model quantity.
+
 ## SV: Particle Filter Implementation
 
 ### Systematic Resampling
@@ -163,3 +173,6 @@ Exactly the same Metropolis-Hastings acceptance structure as EGARCH's NUTS (see 
 | Proposal mechanism | Gradient-informed (leapfrog, via JAX autodiff) | Random-walk (no gradient — particle filter likelihood isn't differentiable in this implementation) |
 | Target acceptance rate | ~95% (`target_accept_prob=0.95`) | ~15-20% — lower, since the noisy likelihood estimate makes standard high-acceptance-rate tuning inappropriate; adapted every 50 iterations toward this target |
 | Rejection of invalid proposals | Priors truncated/bounded (handled inside the model) | Explicit checks before running the particle filter (`np.abs(theta_proposed[1]) >= 1`, `theta_proposed[2] <= 0`) — avoids wasting a full particle filter run on invalid parameters |
+| Chain execution | `chain_method='parallel'` (chains run simultaneously across cores) | `chain_method='sequential'` (chains run one after another) — a practical choice, not something affecting correctness |
+| Convergence check | Multi-chain R-hat/ESS (automatic via NumPyro) | Single-chain ACF-based mixing check (see interpretation.md) — no multi-chain R-hat available in this hand-written implementation |
+
