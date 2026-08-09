@@ -14,6 +14,7 @@ from statsmodels.stats.diagnostic import acorr_ljungbox
 import statsmodels.api as sm
 import pandas as pd
 from scipy import integrate
+import warnings
 from .data import align_series
 from .metrics import sigma_to_hv_correct, sigma_sq_windowed_per_path
        
@@ -39,25 +40,25 @@ def simulate_egarch_t_vectorized(omega, alpha, beta, gamma, nu, mu, n, ls2_init=
     ls2_init: optional per-draw starting state (array of length S). If None, uses the
     stationary initial condition omega/(1-beta) — used for prior predictive checking.
     If provided (e.g. carried-forward state), used for sequential forecast generation.
-    Returns (r, sigma), each of shape (S, n).'''
+    Returns (r, sigma), each of shape (S, n), with r[:,t] and sigma[:,t] both belonging to
+    the same model day t (sigma[:,t] is the sigma that generated r[:,t]).'''
     S = len(omega)
     log_sigma2 = np.zeros((S, n))
     r = np.zeros((S, n))
     e_abs = E_abs_z_interp_numpy(nu)
+    scale = np.sqrt((nu - 2) / nu)
 
     if ls2_init is None:
-        log_sigma2[:, 0] = np.clip(omega / (1 - beta), -20, 2)
+        ls2 = np.clip(omega / (1 - beta), -20, 2)
     else:
-        log_sigma2[:, 0] = np.clip(ls2_init, -20, 2)
+        ls2 = np.clip(ls2_init, -20, 2)
 
-    for t in range(1, n):
-        scale = np.sqrt((nu - 2) / nu)
+    for t in range(n):
+        log_sigma2[:, t] = ls2
         z = np.random.standard_t(nu) * scale
-        r[:, t] = mu + np.exp(0.5 * log_sigma2[:, t-1]) * z
-        log_sigma2[:, t] = np.clip(
-            omega + beta * log_sigma2[:, t-1] + gamma * z + alpha * (np.abs(z) - e_abs),
-            -20, 2
-        )
+        r[:, t] = mu + np.exp(0.5 * ls2) * z
+        if t < n - 1:
+            ls2 = np.clip(omega + beta * ls2 + gamma * z + alpha * (np.abs(z) - e_abs), -20, 2)
     return r, np.sqrt(np.exp(log_sigma2))
 
 egarch_prior_params = {
@@ -122,8 +123,10 @@ def prior_predictive_check(vol_paths, ret_paths, valid_paths, prior_returns_1d, 
     # ── Aggregate: mean (Method 2) and band (per-path, then percentile) ──
     mean_correct = sigma_to_hv_correct(vol_paths, h=21)
     sigma_sq_windowed = sigma_sq_windowed_per_path(vol_paths, h=21)
-    lower = np.sqrt(np.nanpercentile(sigma_sq_windowed, 5, axis=0))
-    upper = np.sqrt(np.nanpercentile(sigma_sq_windowed, 95, axis=0))
+    with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="All-NaN slice encountered")
+            lower = np.sqrt(np.nanpercentile(sigma_sq_windowed, 5, axis=0))
+            upper = np.sqrt(np.nanpercentile(sigma_sq_windowed, 95, axis=0))
 
     # ── Build date-indexed series, align ──
     mean_correct_series = pd.Series(mean_correct, index=prior_dates[:len(mean_correct)]).dropna()

@@ -86,13 +86,14 @@ def hv_coverage_sequential(forecast, actual, dates, window_boundaries, sigma_eta
     inside = (actual >= lower) & (actual <= upper)
     return lower, upper, inside    # depends on: period_indices (data.py)
 
-def compute_pit(returns, sigma, dist='normal', df=None):
+def compute_pit(returns, sigma, mu=0.0, dist='normal', df=None):
     '''Compute u_t = F_t(r_t) and run KS test against Uniform(0,1).
+    mu: the model's assumed mean return, subtracted before standardizing (r_t = mu + sigma_t*eps_t).
     dist: 'normal' or 't' (Student-t, requires df).'''
     if dist == 'normal':
-        u = scipy_stats.norm.cdf(returns / sigma)
+        u = scipy_stats.norm.cdf((returns - mu) / sigma)
     elif dist == 't':
-        u = scipy_stats.t.cdf(returns / sigma, df=df)
+        u = scipy_stats.t.cdf((returns - mu) / sigma, df=df)
     else:
         raise ValueError("dist must be 'normal' or 't'")
     ks_stat, p_value = scipy_stats.kstest(u, 'uniform')
@@ -165,16 +166,21 @@ def hv_coverage_posterior_multilevel(hv_per_draw, actual, sigma_eta, levels=[50,
         results[level] = np.mean(inside)
     return results
 
-def compute_pit_posterior(returns, sigma_per_draw, dist='t', df=None):
+def compute_pit_posterior(returns, sigma_per_draw, mu_per_draw, dist='t', df=None):
     '''Method 1: compute u_t per posterior draw, then average across draws.
-    sigma_per_draw: shape (S, T) — raw per-day sigma_t, one row per draw.'''
+    sigma_per_draw: shape (S, T) — raw per-day sigma_t, one row per draw.
+    mu_per_draw: shape (S,) — each draw's own fitted mean, subtracted before standardizing.
+    df: for dist='t', shape (S,) — each draw's own degrees of freedom. The scale is corrected
+    to sigma_per_draw[s] * sqrt((df[s]-2)/df[s]) to match the model's StudentT(df, mu, scale)
+    observation (raw sigma_t is NOT the StudentT scale parameter).'''
     S, T = sigma_per_draw.shape
     u_per_draw = np.zeros((S, T))
     for s in range(S):
         if dist == 't':
-            u_per_draw[s] = scipy_stats.t.cdf(returns / sigma_per_draw[s], df=df)
+            scale = sigma_per_draw[s] * np.sqrt((df[s] - 2) / df[s])
+            u_per_draw[s] = scipy_stats.t.cdf(returns, df=df[s], loc=mu_per_draw[s], scale=scale)
         else:
-            u_per_draw[s] = scipy_stats.norm.cdf(returns / sigma_per_draw[s])
+            u_per_draw[s] = scipy_stats.norm.cdf(returns, loc=mu_per_draw[s], scale=sigma_per_draw[s])
     u_t = np.mean(u_per_draw, axis=0)   # average across draws — Method 1
     ks_stat, p_value = scipy_stats.kstest(u_t, 'uniform')
     return u_t, ks_stat, p_value
