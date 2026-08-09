@@ -20,3 +20,16 @@ Additionally, they can potentially switch strategies depending on if the latent 
 Furthermore, they can easily identify mispriced options since quoted options generally have an associated implied volatility. 
 
 All of these techniques can be used to generate a profit.
+
+## Project Structure
+
+- **[Theoretical.md](Theoretical.md)** — the theory behind each model, and why the evaluation metrics are constructed the way they are.
+- **[Metrics.md](Metrics.md)** — precise definitions of each evaluation metric (QLIKE, HV Coverage, PIT/KS, Serial Dependence) and how to interpret them.
+- **[Procedural.md](Procedural.md)** — the step-by-step procedure followed: data splits, fitting order, and what each comparison (Regression vs. Sequential, COVID stress test) is designed to isolate.
+- **[Results.md](Results.md)** — the results themselves: tables, a guide to reading them, and the write-up.
+- **[Project%20Code.ipynb](Project%20Code.ipynb)** — the full implementation.
+- **[Additional%20Information/](Additional%20Information/)** — supplementary detail, not required for the main results:
+  - `Model Implementation.md` — implementation-level detail behind the procedure.
+  - `Sampling.md` — the PMCMC sampling procedure for the stochastic volatility model.
+  - `Sources of Error.md` — known limitations and sources of error.
+  - `Extension.md` — possible extensions to the project.

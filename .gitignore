@@ -218,8 +218,4 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Internal/scratch project docs -- kept locally, not published
-Implementation Checklist.md
-Extra Stuff.md
-Data.md
-Interpretation.md
-docs/
+Local Files/
