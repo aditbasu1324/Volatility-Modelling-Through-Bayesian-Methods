@@ -96,8 +96,10 @@ Note that this test requires many values (50 at minimum and potentially more in 
 ## Serial Dependence Diagnostics
 KS checks *pooled* uniformity only — not whether consecutive $u_t$ are independent. A model could have $u_t$ near 1 in high-vol stretches and near 0.5 in calm ones — a real miscalibration pattern — while the pooled distribution still looks uniform. All the below tests inherit the same sample size issue from the return calibration test.
 
-This tests below check autocorrelation in time series. In order to apply this test, first
+The tests below check autocorrelation in time series. In order to apply this test, first
 $u_t$ is transformed via $z_t=\Phi^{-1}(u_t)$ (iid $N(0,1)$ under correct calibration), then is checked for volatility clustering, directional persistence and leverage.
+
+Note that in all these tests, passing i.e $p>0.05$ means the facts aren't present in the residuals ($z_{t}$) i.e the required volatility facts have already been captured by the model.
 
 ### ACF of $z_t$ (Ljung-Box) — directional persistence
 $$\hat\rho_j = \frac{\sum_{t=j+1}^n(z_t-\bar z)(z_{t-j}-\bar z)}{\sum_{t=1}^n(z_t-\bar z)^2}, \qquad Q(k)=n(n+2)\sum_{j=1}^k\frac{\hat\rho_j^2}{n-j}\sim\chi_k^2 \text{ under } H_0$$
