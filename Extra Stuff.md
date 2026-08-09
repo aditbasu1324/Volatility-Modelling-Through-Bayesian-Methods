@@ -604,3 +604,187 @@ This means every evaluation metric shares the same limitation: the theoretically
 EGARCH and SV assume $\sigma_t$ fluctuates around a stable long-run level $\sigma_\infty^2$, not that $\sigma_t$ is constant. This is compatible with volatility clustering and mean-reversion, but assumes a single, fixed $\sigma_\infty^2$ holds throughout the estimation period.
 
 COVID poses two potential challenges to this: (1) if COVID represents a genuine, lasting shift in the market's volatility regime rather than a temporary deviation, the single $\sigma_\infty^2$ assumed (elicited from the calmer 2013–2017 prior period) may not be the correct long-run target for the regression period as a whole; (2) even if stationarity holds in principle, the models' persistence parameters ($\beta$, $\phi$) determine how quickly volatility reverts, and COVID's unusually rapid spike may exceed the speed these parameters were calibrated to handle. Both are testable via the existing COVID sub-period evaluation (QLIKE, RV coverage) rather than assumed away
+
+## Results Summary
+
+### Regression vs Sequential
+
+The QLIKE regression results show that the EGARCH and SV volatility models are substantial improvements over the baseline model suggesting the models can forecast volatility well. However, both the models fail to generalize in the sequential setting. This suggests that the sequential approach requires changes, more windows under a shorter timeframe. Consequently, all the sequential results are potentially misleading for now.
+
+However, conclusions can be drawn with regards to regression.
+
+### EGARCH vs SV
+The stochastic volatility model seems to perform better than EGARCH on pointwise estimates. It has a lower QLIKE mean and better HV coverage at different HV percentile with lower confidence interval width i.e it is more representative of the true volatility with more informative predictions. On the other hand, EGARCH is better at incorporating volatility properties since it does better on the PIT, ljung-Box tests and Enge-Bas tests which assess the model's responsiveness to shape, volatility clustering and leverage effect respectively.
+
+###  COVID-19
+For the COVID period, EGARCH does substantially better than SV and the baseline across all metrics,  i.e it adapts better to shocks in a regression setting.
+
+### Baseline
+
+With regards to the baseline, both EGARCH and stochastic volatility are clearly better at it on pointwise estimates. In terms of historical volatility, although the baseline model has good coverage, it also has significantly less informative predictions due to its wide confidence interval. Additionally, it fails on all the volatility property tests.
+
+The actual results from the test are given below as proof. 
+
+## How to Read the Results Below
+
+- **QLIKE**: lower is better; no fixed threshold, primarily useful for ranking models against each other.
+- **HV Coverage**: for a stated CI (e.g. 90%), the target is that exact percentage — below target means overconfident (too-narrow) intervals; above target means underconfident (too-wide) intervals.
+- **Interval width**: given similar coverage, narrower is more informative; a wide interval can trivially achieve "good" coverage while carrying little real information.
+- **Measurement noise ($\hat\sigma_\eta$) progression**: growing over the sequential period indicates the gap between forecast and empirical benchmark is widening, not narrowing.
+- **Forecast-actual correlation**: higher indicates the forecast genuinely tracks real movements; near-zero indicates little to no relationship.
+- **PIT/KS p-value**: p>0.05 indicates no evidence of miscalibration (a "pass"); the KS statistic itself indicates the size of any deviation, useful for comparing severity even when p-values are hard to compare across differing sample sizes.
+- **Ljung-Box / Engle-Ng p-values**: p>0.05 indicates no evidence of the tested pattern (no persistence, no clustering, no leverage-driven bias); the coefficient/statistic size indicates how severe a failure is, not just whether it's significant.
+
+- **Metrics with a fixed ideal value** (correlation: ideal=1; coverage: ideal=stated CI level; PIT/Ljung-Box/Engle-Ng p-values: no fixed "ideal" number, but a clear pass/fail threshold at 0.05) are read by their distance from that fixed point, not by ratio-to-baseline.
+- **Metrics with no fixed ideal** (QLIKE: no natural zero or target value, only meaningful in comparison) are read as ratios relative to baseline.
+
+Note on the tables below: Sections 1-4 are now framed as **2022 Regression vs. 2022 Sequential** — a second, one-shot Regression fit on the same 2022-2025 span Sequential covers, carried forward from the 2018-2021 posterior the same way each Sequential window already is. This holds the market period fixed and isolates the refit-frequency effect (methodology) from the COVID-vs-not effect (market period), which the original Regression(2018-2021)-vs-Sequential comparison confounded. The 2018-2021-inclusive Regression numbers (and the COVID stress test built from them) aren't gone — they live in Section 5b — just not the primary comparison here for now. EGARCH and SV's Sequential figures use the **t,t+1 filtered** forecast (each day's state causally filtered through real returns before that day); HV Coverage still uses the **blind** forecast, since it evaluates a forward-looking h=21-day realized-volatility band that's unavoidably a blind simulation regardless of how well the starting state is filtered. Baseline has no separate "Regression" fit at all — `full_rolling = rolling_vol(full_returns)` is one rolling-21-day trailing std computed once over the whole series, then just date-sliced for reporting (`rolling_regression = full_rolling.loc[regression_dates]`, `rolling_sequential = full_rolling.loc[sequential_dates]`). There's no refit and no one-shot-vs-refit distinction to speak of, so Baseline's "Regression" and "Sequential" columns below are the same numbers by construction — shown under both headings for a fair side-by-side, not because anything was separately computed.
+
+## 1. QLIKE
+
+### QLIKE — 2022-2025, Pooled
+
+| | Baseline (Regression) | Baseline (Sequential) | EGARCH (Regression) | EGARCH (Sequential) | SV (Regression) | SV (Sequential) |
+|---|---|---|---|---|---|---|
+| QLIKE (mean) | 0.3955 | 0.3955 | 0.0726 | 0.2944 | 0.0551 | 0.2703 |
+
+### QLIKE — 2022-2025, By Window
+
+*EGARCH/SV's Regression columns are pending — the notebook cells that compute them (`qlike_windows_egarch_r22`, `qlike_windows_sv_r22`) have been added but not yet run. Baseline's Regression column needs no new computation (see note above) and is filled in already.*
+
+| Window | Baseline (Regression) | Baseline (Sequential) | EGARCH (Sequential) | SV (Sequential) |
+|---|---|---|---|---|
+| Window 1 | 0.2578 | 0.2578 | 0.1516 | 0.1822 |
+| Window 2 | 0.1093 | 0.1093 | 0.0779 | 0.0914 |
+| Window 3 | 0.0842 | 0.0842 | 0.3591 | 0.1459 |
+| Window 4 | 0.1296 | 0.1296 | 0.2637 | 0.1305 |
+| Window 5 | 0.1702 | 0.1702 | 0.2186 | 0.1422 |
+| Window 6 | 0.9491 | 0.9491 | 0.2403 | 0.2979 |
+| Window 7 | 1.0283 | 1.0283 | 0.7744 | 0.9344 |
+| Window 8 | 0.4464 | 0.4464 | 0.2834 | 0.2519 |
+
+### Sequential Forecast-Actual Correlation (t,t+1 filtered)
+
+| | Baseline | EGARCH | SV |
+|---|---|---|---|
+| Correlation | 0.4946 | 0.5409 | 0.5766 |
+
+### Interpretation 1
+
+Regression (2022-2025, one-shot, carried forward from 2018-2021) clearly outperforms Sequential (8-window refit) on the identical period: EGARCH scores ~4x lower QLIKE (0.073 vs. 0.294), SV ~5x lower (0.055 vs. 0.270). Refitting every 6 months does not improve pointwise accuracy here — a single carried-forward fit does markedly better.
+- Both Bayesian models still beat Baseline's QLIKE (0.40, identical under either heading) regardless of which of their own two settings is used.
+- Window 7 is the worst window for all three models (Baseline 1.03, EGARCH 0.77, SV 0.93) — the pending EGARCH/SV per-window Regression comparison will help clarify whether this is a Sequential-refit-specific problem or a hard window under any approach.
+- Forecast-actual correlation (ideal = 1, Sequential only): SV 0.58, EGARCH 0.54, Baseline 0.49 — all three show a moderate positive relationship between forecast and actual movements.
+
+## 2. HV Coverage and Measurement Noise
+
+### HV Coverage (90% CI) — 2022-2025, Pooled
+
+| | Baseline (Regression) | Baseline (Sequential) | EGARCH (Regression) | EGARCH (Sequential) | SV (Regression) | SV (Sequential) |
+|---|---|---|---|---|---|---|
+| Coverage | 93.68% | 93.68% | 82.26% | 93.37% | 90.93% | 93.37% |
+
+![Sequential Forecast Comparison: Baseline vs. EGARCH vs. SV](results/comparison_hv_sequential.png)
+
+### HV Coverage (90%) — By Window
+
+*EGARCH/SV's Regression columns are pending — the notebook cells that compute them (`coverage_windows_egarch_r22`, `coverage_windows_sv_r22`) have been added but not yet run. Baseline's Regression column needs no new computation (see note above) and is filled in already.*
+
+| Window | Baseline (Regression) | Baseline (Sequential) | EGARCH (Sequential) | SV (Sequential) |
+|---|---|---|---|---|
+| Window 1 | 100.00% | 100.00% | 92.74% | 100.00% |
+| Window 2 | 100.00% | 100.00% | 100.00% | 100.00% |
+| Window 3 | 100.00% | 100.00% | 84.68% | 94.35% |
+| Window 4 | 98.41% | 98.41% | 96.83% | 96.03% |
+| Window 5 | 100.00% | 100.00% | 97.58% | 90.32% |
+| Window 6 | 86.72% | 86.72% | 100.00% | 84.38% |
+| Window 7 | 69.67% | 69.67% | 81.15% | 82.79% |
+| Window 8 | 94.34% | 94.34% | 93.40% | 100.00% |
+
+### Measurement Noise (sigma_eta) — Sequential, First vs. Final Window
+
+| | Baseline | EGARCH | SV |
+|---|---|---|---|
+| Window 1 | 0.5822 | 0.2042 | 0.1782 |
+| Final Window | 0.5031 | 0.3443 | 0.2934 |
+
+### Interpretation 2
+
+**2022-2025, Pooled** (90% CI, ideal = 90%): EGARCH's Regression fit under-covers noticeably (82.26%), while its Sequential refit lands much closer to target (93.37%, though now over-covering). SV is close to on-target either way (Regression 90.93%, almost exact; Sequential 93.37%, mildly over-covering). Unlike QLIKE, refitting doesn't clearly hurt coverage — for EGARCH it visibly helps.
+- Window 7 is Sequential's worst window for all three models (Baseline 69.67%, EGARCH 81.15%, SV 82.79%), consistent with it also being the worst QLIKE window — points at refit quality in that window rather than a coverage-specific issue.
+- $\hat\sigma_\eta$, window 1 → final window (Sequential): Baseline shrinks (~0.86x); EGARCH grows (~1.7x); SV grows (~1.6x) — both Bayesian models' measurement-noise gap to the empirical benchmark widens over the sequential period.
+
+## 3. PIT/KS
+
+### PIT/KS — 2022-2025, Pooled
+
+| | Baseline (Regression) | Baseline (Sequential) | EGARCH (Regression) | EGARCH (Sequential) | SV (Regression) | SV (Sequential) |
+|---|---|---|---|---|---|---|
+| KS statistic | 0.0415 | 0.0415 | 0.0266 | 0.0338 | 0.0380 | 0.0367 |
+| p-value | 0.0619 | 0.0619 | 0.4699 | 0.1974 | 0.1087 | 0.1321 |
+
+![PIT Histograms — Sequential](results/pit_histograms_sequential.png)
+
+### Interpretation 3
+
+Regression (2022-2025) and Sequential both pass for EGARCH and SV, but Regression is better calibrated in both cases: EGARCH's Regression p-value (0.470) is roughly double Sequential's (0.197); SV's Regression p-value (0.109) is a touch below Sequential's (0.132), though both comfortably pass. Baseline remains marginal (p=0.062, identical under either heading — no separate fit exists for it).
+- Consistent with QLIKE: fitting once on the whole 2022-2025 span, carried forward from the 2018-2021 posterior, calibrates as well as or better than refitting every 6 months — there's no clear PIT-calibration benefit to the more frequent refit.
+
+## 4. Serial Diagnostic Dependence
+
+### Ljung-Box (lag=5) — 2022-2025
+
+| | Baseline (Regression) | Baseline (Sequential) | EGARCH (Regression) | EGARCH (Sequential) | SV (Regression) | SV (Sequential) |
+|---|---|---|---|---|---|---|
+| p-value, $z_t$ (level) | 0.9313 | 0.9313 | 0.7035 | 0.7899 | 0.7124 | 0.7187 |
+| p-value, $z_t^2$ (squared) | 0.0113 | 0.0113 | 0.0210 | 0.0095 | 0.1016 | 0.0540 |
+
+### Engle-Ng Sign-Bias — 2022-2025
+
+| | Baseline (Regression) | Baseline (Sequential) | EGARCH (Regression) | EGARCH (Sequential) | SV (Regression) | SV (Sequential) |
+|---|---|---|---|---|---|---|
+| $\beta_1$ (sign_lag coef) | -0.1388 | -0.1388 | -0.0435 | -0.0400 | -0.1080 | -0.2068 |
+| p-value | 0.0056 | 0.0056 | 0.317 | 0.3555 | 0.003 | 0.0082 |
+
+### Interpretation 4
+
+**Directional persistence ($z_t$)**: all settings pass.
+
+**Volatility clustering ($z_t^2$)**: EGARCH fails under both Regression (p=0.021) and Sequential (p=0.010), at similar severity — refitting doesn't rescue it. SV passes comfortably under Regression (p=0.102) but only marginally under Sequential (p=0.054) — refitting slightly hurts SV's clustering diagnostic.
+
+**Leverage (Engle-Ng)**: EGARCH passes under both settings with near-identical coefficients (Regression -0.044, p=0.317; Sequential -0.040, p=0.356) — this looks like a genuine model property rather than a refit-frequency artifact. SV fails under both, but its Regression coefficient is roughly half the magnitude of Sequential's (-0.108 vs. -0.207, p=0.003 vs. 0.008) — refitting appears to make SV's leverage bias worse, not better.
+
+## 5. Matched-Period Comparisons (2022-2025)
+
+Two confounds sit inside the original Regression-vs-Sequential comparison: Regression is fit once on 2018-2021 (which contains the entire COVID window) while Sequential refits every 6 months over 2022-2025 (which contains none of it) — so any gap between them mixes a **methodology** effect (one-shot fit vs. 8-window refit) with a **market-period** effect (COVID-inclusive vs. not). To separate these, a second one-shot Regression was fit on the same 2022-2025 span Sequential covers, carried forward from the 2018-2021 posterior exactly the way each Sequential window already is (same priors, same starting state) — isolating the methodology effect. Comparing that new fit against the original 2018-2021 Regression, in turn, isolates the market-period/COVID-stress effect, since both are one-shot fits differing only in which period they were fit on. EGARCH/SV only — this fitting machinery doesn't extend to Baseline.
+
+### 5a. Regression vs. Sequential — Methodology Effect (2022-2025, same period both ways)
+
+| | EGARCH (Regression) | EGARCH (Sequential) | SV (Regression) | SV (Sequential) |
+|---|---|---|---|---|
+| QLIKE | 0.0726 | 0.2944 | 0.0551 | 0.2703 |
+| HV Coverage (90% target) | 82.26% | 93.37% | 90.93% | 93.37% |
+| PIT/KS p-value | 0.4699 | 0.1974 | 0.1087 | 0.1321 |
+| Ljung-Box $z_t^2$ p-value (lag 5) | 0.0210 | 0.0095 | 0.1016 | 0.0540 |
+| Engle-Ng $\beta_1$ (p-value) | -0.0435 (0.317) | -0.0400 (0.356) | -0.1080 (0.003) | -0.2068 (0.008) |
+
+**Interpretation 5a**: Refitting every 6 months does not clearly help, and by QLIKE it clearly hurts — both models score roughly 4-5x lower (better) QLIKE as a one-shot fit than as an 8-window refit on the identical period (EGARCH 0.073 vs. 0.294; SV 0.055 vs. 0.270).
+- Calibration is mixed rather than uniformly favoring one approach: EGARCH's Regression PIT is much better calibrated (p=0.47 vs. 0.20), but its HV coverage is worse (82% vs. Sequential's 93%, both off a 90% target in opposite directions). SV's Regression coverage (90.93%) is almost exactly on target, edging out Sequential's 93.37%.
+- Volatility clustering: Regression fails less severely for EGARCH (p=0.021 vs. 0.010) and passes more comfortably for SV (p=0.102 vs. 0.054, marginal).
+- Leverage: EGARCH is essentially unchanged by methodology (p=0.32 vs. 0.36, both pass, near-identical coefficient) — this looks like a genuine model property, not an artifact of refit frequency. SV fails under both, but its Regression coefficient is roughly half the magnitude of Sequential's (-0.108 vs. -0.207).
+- Net: on a period-matched basis, one-shot fitting is the stronger choice on QLIKE and mostly comparable-to-better on calibration — the earlier notebook-wide assumption that sequential refitting should improve on a static fit isn't well supported once the market period is held constant.
+
+### 5b. Regression: 2018-2021 (COVID-inclusive) vs. 2022-2025 (Matched Period) — COVID Stress Test
+
+| | EGARCH (2018-2021) | EGARCH (2022-2025) | SV (2018-2021) | SV (2022-2025) |
+|---|---|---|---|---|
+| QLIKE | 0.0992 | 0.0726 | 0.0702 | 0.0551 |
+| HV Coverage (90% target) | 85.43% | 82.26% | 90.89% | 90.93% |
+| PIT/KS p-value | 0.4195 | 0.4699 | 0.0219 | 0.1087 |
+| Ljung-Box $z_t^2$ p-value (lag 5) | 0.0682 | 0.0210 | 0.0439 | 0.1016 |
+| Engle-Ng $\beta_1$ (p-value) | -0.0940 (0.046) | -0.0435 (0.317) | -0.1353 (0.000) | -0.1080 (0.003) |
+
+**Interpretation 5b**: The stress-test framing holds up on the metric it should matter most for — SV's PIT calibration fails outright with COVID in-sample (p=0.022) and passes comfortably without it (p=0.109), a clean confirmation that COVID's spike is what breaks SV's calibration, not a chronic property of the model. QLIKE also moves the expected direction for both models (worse — higher — with COVID present: EGARCH 0.099 vs. 0.073; SV 0.070 vs. 0.055).
+- EGARCH's leverage term is similarly cleaner without COVID: it barely passed with COVID present (p=0.046, coefficient -0.094) and passes comfortably without it (p=0.317, coefficient less than half as large, -0.044).
+- Not every metric moves the "COVID hurts" direction, though. EGARCH's HV coverage is *worse* without COVID (82.26% vs. 85.43%, both under the 90% target) and its volatility-clustering test actually fails once COVID is removed (p=0.021) after barely passing with it in-sample (p=0.068) — COVID's extreme moves appear to have supplied clustering signal EGARCH's regression period otherwise lacks. SV's coverage is essentially unaffected either way (90.89% vs. 90.93%).
+- Net: COVID's presence is a real, measurable distortion for pointwise accuracy (QLIKE) and specifically for SV's calibration — but it is not a uniform "COVID makes everything worse" effect; a couple of diagnostics (EGARCH coverage, EGARCH clustering) score *better* with COVID in the sample, worth keeping in mind before assuming its removal is strictly an improvement.

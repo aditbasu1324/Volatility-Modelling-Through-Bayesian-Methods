@@ -29,7 +29,9 @@ $$\text{Var}\left(\sum_{i=1}^h r_{t+i}\,\middle|\,\mathcal{F}_t\right) = \sum_{i
 
 **Consistency check (constant volatility)**: substituting $\sigma_{t+i}=\sigma$ gives $\sum_i E[\sigma_{t+i}^2\mid\mathcal{F}_t]=h\sigma^2$, confirming the model-side formula recovers the same $\sigma^2$ as the empirical (LLN) estimator:
 $$\hat\sigma_t^{model} = \sqrt{\frac{1}{h}\sum_{i=1}^h E[\sigma_{t+i}^2\mid\mathcal{F}_t]}$$
-Note: $\sigma_{t+i} \ne E[\sigma_{t+i}^2\mid\mathcal{F}_t]$ For simplicity, the $\mathcal{F}_t$ condition isn't considered so far (it wouldn't make sense for regression because all the data is looked at, for sequential it would require forward simulations)
+Note: $\sigma_{t+i} \ne E[\sigma_{t+i}^2\mid\mathcal{F}_t]$. For regression, $\mathcal F_t$-conditioning doesn't apply — the whole period is fit jointly, so the fitted path is smoothed/non-causal by design.
+
+For sequential: $\sigma_{t+1}$ is genuinely $\mathcal F_t$-measurable — obtained by causally filtering through real returns up to $t-1$ (deterministic for EGARCH; via a particle filter for SV), never using $r_t$ itself. For $i>1$, $\sigma_{t+i}$ remains genuinely random given $\mathcal F_t$ (per the derivation above) regardless of how accurately $\sigma_{t+1}$ is filtered, since it depends on shocks between $t$ and $t+i-1$ that haven't occurred yet — estimating $E[\sigma_{t+i}^2\mid\mathcal F_t]$ for these terms still requires forward simulation from the filtered $\sigma_{t+1}$ state.
 
 A fair comparison requires factoring error 1 into the model side too, via a log-normal noise model (below).
 
@@ -87,16 +89,19 @@ $F_t$ = model's estimated return CDF at $t$ (from $\hat\sigma_t^{model}$); $u_t$
 
 **PIT theorem**: if $r_t\sim F_t$ truly, $u_t\sim\text{Uniform}(0,1)$ — general, distribution-free. Intuition: under correct calibration, the actual return is equally likely to land at any percentile. Too many $u_t$ near 0/1 → intervals too narrow.
 
-**KS test**: compares empirical CDF of $\{u_t\}$ against Uniform(0,1) (Massey, 1951); $p<0.05$ → not well calibrated.
+**KS test**: compares empirical CDF F of $\{u_t\}$ against Uniform(0,1) using the maximum distance of |F(x)-x| (Massey, 1951); $p<0.05$ → not well calibrated.
+
+Note that this test requires many values (50 at minimum and potentially more in practice)
 
 ## Serial Dependence Diagnostics
-KS checks *pooled* uniformity only — not whether consecutive $u_t$ are independent. A model could have $u_t$ near 1 in high-vol stretches and near 0.5 in calm ones — a real miscalibration pattern — while the pooled distribution still looks uniform.
+KS checks *pooled* uniformity only — not whether consecutive $u_t$ are independent. A model could have $u_t$ near 1 in high-vol stretches and near 0.5 in calm ones — a real miscalibration pattern — while the pooled distribution still looks uniform. All the below tests inherit the same sample size issue from the return calibration test.
 
-$u_t$ is transformed via $z_t=\Phi^{-1}(u_t)$ (iid $N(0,1)$ under correct calibration), then tested for clustering, persistence, and leverage.
+This tests below check autocorrelation in time series. In order to apply this test, first
+$u_t$ is transformed via $z_t=\Phi^{-1}(u_t)$ (iid $N(0,1)$ under correct calibration), then is checked for volatility clustering, directional persistence and leverage.
 
 ### ACF of $z_t$ (Ljung-Box) — directional persistence
 $$\hat\rho_j = \frac{\sum_{t=j+1}^n(z_t-\bar z)(z_{t-j}-\bar z)}{\sum_{t=1}^n(z_t-\bar z)^2}, \qquad Q(k)=n(n+2)\sum_{j=1}^k\frac{\hat\rho_j^2}{n-j}\sim\chi_k^2 \text{ under } H_0$$
-$H_0$: $\rho_1=...=\rho_k=0$. High $p$ → no directional persistence. Low $p$ → errors run in the same direction over time.
+$H_0$: $\rho_1=...=\rho_k=0$. High $p$ → no directional persistence. Low $p$ → errors run in the same direction over time. 
 
 ### ACF of $z_t^2$ (Ljung-Box, ARCH-LM style) — volatility clustering
 Same test on $z_t^2$ (sign removed). High $p$ → model captures true clustering, errors don't bunch up. Low $p$ → leftover clustering, model adapts too slowly to regime shifts.

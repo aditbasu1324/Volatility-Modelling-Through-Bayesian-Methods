@@ -27,7 +27,7 @@ $\log\pi(\theta') = \log p(\text{data}\mid\theta') + \log p(\theta')$ — the pr
 
 See sampling.md for the general NUTS mechanism (gradient-informed proposals, adaptive trajectory length/step size). Here, $\nabla_\theta\log\pi(\theta)$ is obtained via JAX's automatic differentiation through the entire `jax.lax.scan` recursion (Step 2) and the `numpyro.sample("obs", ...)` likelihood (Step 3) — computing how a change in $\alpha,\beta,\gamma,\nu,\mu_{ret},\sigma_\infty$ affects the final log-posterior, with no derivatives manually derived.
 
-**Return indexing**: recursion scans over `returns[:-1]` to produce $\sigma_1,...,\sigma_{T-1}$; $\sigma_0$ set directly. Full returns (all $T$) used for the likelihood.
+**Return indexing**: recursion scans over the full `returns` array (all $T$) to produce $\sigma_1,...,\sigma_T$; $\sigma_0$ set directly. The likelihood uses only $\sigma_0,...,\sigma_{T-1}$ — the final term $\sigma_T$ is exposed separately (`numpyro.deterministic("ls2_next", ...)`) as the state after the window's last return, used only for carry-forward.
 
 ### Known Approximations
 - **$\omega$ uses fixed $\hat\beta_{egarch}$, not sampled $\beta$, within NUTS-fitted models** (regression fit and each sequential refit) — avoids divergences during gradient-based sampling. Does not apply to the plain-NumPy filtering/PIT computations, which have no such stability constraint. Affects only the early path and each draw's precise long-run level; doesn't affect overall validity.
@@ -44,12 +44,15 @@ Point estimates from an MLE fit (via the `arch` package, on prior-period data) a
 - $\sigma_t$ obtained directly from the NUTS-fitted posterior, run through the actual regression-period returns (no simulation needed — see theoretical.md for why: no future uncertainty exists for already-observed data).
 - `numpyro.deterministic("sigma", sigma)` captures the full per-draw path, avoiding a separate post-hoc re-simulation.
 - $\hat\sigma_t^{model}$: average $\sigma_t^2$ across posterior draws *before* the window-RMS aggregation (Jensen's inequality — see theoretical.md), via `sigma_to_hv_posterior`.
-- End-of-regression state for sequential carry-forward: `sigma_posterior_egarch[:, -1]` (per draw) — no re-simulation needed, since the original per-draw path already contains it.
+- End-of-regression state for sequential carry-forward: `mcmc_egarch.get_samples()["ls2_next"]` (per draw) — the state after the regression period's last return, exposed directly by the model (see Step 2, above) — no re-simulation needed.
 
 ## EGARCH: Sequential (Implementation)
 
 ### Forecast Generation — Vectorized NumPy, Not JAX/NUTS
-`forward_simulate_egarch_window` runs the recursion in plain NumPy, vectorized across all posterior draws (parameters as length-$S$ arrays). Fresh `np.random.standard_t` shock drawn per draw at each step. No autodiff needed here (no sampling of new parameters), so plain NumPy suffices.
+Two forecasts are generated per window, both in plain NumPy (no autodiff needed, since no new parameters are being sampled):
+
+- **Blind (t+126)**: `forward_simulate_egarch_window` runs the recursion vectorized across all posterior draws (parameters as length-$S$ arrays), drawing a fresh `np.random.standard_t` shock per draw at each step, for the whole window in one pass. An extra $h-1$ "overhang" days are simulated past the window's real end purely so the rolling $h$-day HV computation has enough runway to produce a value for every real day, including the last $h-1$ — the overhang itself is discarded afterward.
+- **Filtered (t,t+1)**: `filtered_pass_egarch_window` walks the same recursion deterministically through the window's *real* returns instead of random shocks — EGARCH's state is an exact function of $\theta$ and observed returns, so no randomness is needed here. `filtered_sigma[:, t]` is informed only by returns before $t$, never $r_t$ itself. `filtered_forecast_egarch_window` then calls `forward_simulate_egarch_window` fresh for each day $t$, forecasting $h$ days forward from that day's filtered state — this is where randomness re-enters, since the $h$-day-ahead leg is still necessarily blind.
 
 ### Refitting — NumPyro/NUTS, with `numpyro.deterministic`
 Structurally identical to the regression fit, plus `numpyro.deterministic("sigma", sigma)` so `mcmc_w.get_samples()["sigma"]` returns each draw's full path for that window directly.
@@ -58,10 +61,10 @@ Structurally identical to the regression fit, plus `numpyro.deterministic("sigma
 
 The regression fit uses 2000 warmup + 2000 samples across 4 parallel chains (16,000 total draws from one NUTS run). Each sequential window refit instead uses 500 warmup + 1000 samples across 2 chains (3,000 total draws), run 8 times (once per window).
 
-This reduction is a computational-cost choice, not one motivated by an observed convergence difference between the two settings — refitting via NUTS 8 separate times (once per window) is considerably more expensive in aggregate than the single regression fit, so per-window settings were scaled down to keep total runtime manageable. <!-- TODO: check R-hat/ESS across sequential window refits vs. the regression fit, to confirm reduced settings haven't compromised convergence quality -->
+This reduction is a computational-cost choice, not one motivated by an observed convergence difference between the two settings — refitting via NUTS 8 separate times (once per window) is considerably more expensive in aggregate than the single regression fit, so per-window settings were scaled down to keep total runtime manageable.
 
 ### Carrying State Forward
-Next window's start: `ls2_current_seq = np.log(samples_w["sigma"][:, -1]**2)` — the just-refit window's own per-draw end state (not the previous window's stale carry-in).
+Next window's start: `ls2_current_seq = samples_w["ls2_next"]` — the just-refit window's own per-draw state after its last return, exposed the same way as the regression fit's `ls2_next` (see EGARCH: Regression, above).
 
 ### Approximate Prior Updating
 `fit_beta_params`/`fit_gamma_params` approximate posterior samples with a parametric distribution (method-of-moments for Gamma; MLE fit for Beta) — a cheap substitute for exact conjugate updating, which isn't available for this nonlinear recursion (see theoretical.md).
@@ -94,12 +97,14 @@ The regression fit uses an adaptive random-walk proposal, widening/narrowing `pr
 
 See sampling.md for why PMCMC works (the particle filter as an unbiased likelihood estimator, and the pseudo-marginal argument for why substituting this estimate into Metropolis-Hastings still yields exact posterior samples). This section covers how that theory is computed for SV.
 
-### Step 1: Initialize Particles from the Stationary Distribution
+### Step 1: Initialize Particles
 
+`particle_filter_sv` supports two initializations via its optional `ls2_init` argument:
+
+- **Stationary** (default, `ls2_init=None`) — used for the regression fit, which has no prior window to carry a state from:
 $$\ln\sigma_0^{2,(n)} \sim N\left(\mu_h,\ \frac{\sigma_\eta^2}{1-\phi^2}\right), \qquad n=1,...,N$$
-
-- `init_std = sigma_eta / np.sqrt(1 - phi**2)` — the stationary variance of the AR(1) log-variance process, used so particles start already distributed according to the model's own long-run behavior, rather than an arbitrary point.
-- `particles = np.random.normal(mu, init_std, N)` — draws all $N$ particles at once as a single vectorized array, not a loop.
+  `init_std = sigma_eta / np.sqrt(1 - phi**2)` (the AR(1) process's stationary variance), `particles = np.random.normal(mu, init_std, N)` — all $N$ particles drawn at once as a vectorized array, not a loop.
+- **Warm-started** (`ls2_init` given) — used for every sequential refit: `particles = np.full(N, ls2_init)`, all $N$ particles seeded at a single scalar (the pooled mean across the previous window's per-draw end states — see SV: Sequential (Implementation), below). The very next propagate step (Step 3, below) immediately injects spread via $\eta_t$, so this point-mass start doesn't cause degenerate weights.
 
 ### Step 2: Propose $\theta'$
 
@@ -175,4 +180,61 @@ Exactly the same Metropolis-Hastings acceptance structure as EGARCH's NUTS (see 
 | Rejection of invalid proposals | Priors truncated/bounded (handled inside the model) | Explicit checks before running the particle filter (`np.abs(theta_proposed[1]) >= 1`, `theta_proposed[2] <= 0`) — avoids wasting a full particle filter run on invalid parameters |
 | Chain execution | `chain_method='parallel'` (chains run simultaneously across cores) | `chain_method='sequential'` (chains run one after another) — a practical choice, not something affecting correctness |
 | Convergence check | Multi-chain R-hat/ESS (automatic via NumPyro) | Single-chain ACF-based mixing check (see interpretation.md) — no multi-chain R-hat available in this hand-written implementation |
+
+### `pmcmc_regression` vs. `pmcmc_sequential`: Where They Actually Differ
+
+Both functions share the exact same core loop (propose, run the particle filter, Metropolis-Hastings accept/reject, adapt `proposal_std`) — everything in Steps 2–5 above is identical between them. The differences are narrower than the separate function names might suggest:
+
+| | `pmcmc_regression` | `pmcmc_sequential` |
+|---|---|---|
+| Prior shape | Hardcoded inside `log_prior` (e.g. `scipy_stats.norm.logpdf(mu_p, mu_init, 1.0)` — std fixed at 1.0) | Passed in as arguments (`mu_prior_std`, `phi_prior_a`/`phi_prior_b`, `sigma_eta_prior_scale`, `mu_return_prior_std`) — a freshly re-centered prior every window |
+| State warm-start (`ls2_init`) | Not a parameter at all — always stationary-initializes, correctly, since there's no prior window to carry from | Optional parameter, forwarded to every `particle_filter_sv` call, warm-starting from the previous window's carried state (see Carrying State Forward and Warm-Starting the Refit, below) |
+| Input validation | Explicitly raises `ValueError` if `mu_init`/`sigma_eta_init`/`mu_return_init` are `None` | No equivalent check — assumes the caller (the main sequential loop) always supplies real values |
+| Proposal-validity check | Two separate `if` blocks (checks $\lvert\phi'\rvert\geq 1$, then separately $\sigma_\eta'\leq 0$) | One combined `if ... or ...` — same two conditions, same outcome, just written more compactly |
+
+The prior-shape difference is the one that actually matters, and it's not incidental: regression runs once, against a fixed, prior-period-derived prior, so a constant shape is correct there. Sequential runs eight times, and each window's prior has to be re-centered on the *previous* window's posterior (computed in the main loop, in Extract priors from previous posterior, before each refit call) — so the shape can't be a hardcoded constant, it has to be a parameter. Everything else in the table — validation, the combined-vs-separate boundary check — is a real difference in the code but not a difference in what either function actually computes. The print labels and `# NEW:` vs. `# FIX:` comment styles (not shown above) are purely cosmetic, left over from separate earlier bug-fixing passes on each function.
+
+## SV: Sequential (Implementation)
+
+### Forecast Generation
+
+Mirrors EGARCH: Sequential (Implementation) structurally, both forecasts in plain NumPy:
+
+- **Blind (t+126)**: `forward_simulate_sv_window` runs `simulate_sv_vectorized` across all posterior draws in one pass, same $h-1$ overhang-then-discard trick as EGARCH for the rolling HV window.
+- **Filtered (t,t+1)**: unlike EGARCH, SV's state has its own independent noise and can't be backed out deterministically from returns alone (see theoretical.md, Why Particle MCMC Is Required), so filtering requires a genuine particle filter per posterior draw — not vectorizable across draws the way EGARCH's deterministic recursion is. `particle_filter_sv_predictive` runs one draw's filter, capturing `predictive_ls2[t]` *before* the reweight step folds in $r_t$ (mirroring the same causal boundary as EGARCH's `filtered_sigma`). `filtered_pass_sv_window` loops this over all $S$ draws (the one place SV's forecast generation can't avoid a Python-level loop over draws) to build the full `(S, T_w)` filtered state array. `filtered_forecast_sv_window` then calls `forward_simulate_sv_window` fresh per day, same as EGARCH's filtered forecast.
+
+### The t,t+1 Causal Boundary, Precisely
+
+`particle_filter_sv_predictive`'s loop makes the causal ordering explicit at every step:
+```python
+for t in range(T):
+    particles = mu + phi*(particles - mu) + np.random.normal(0, sigma_eta, N)   # propagate
+    predictive_ls2[t] = particles.mean()                                        # recorded BEFORE reweight
+    ...
+    log_w = scipy_stats.norm.logpdf(window_returns[t], loc=mu_return, scale=sigma_t)  # r_t enters HERE
+    ...
+    particles = particles[idx]                                                  # resampled, feeds next t's propagate
+```
+Going into iteration $t$, `particles` already reflects the reweight/resample from iteration $t-1$ — informed through $r_{t-1}$, nothing more. Propagating advances it one step; recording `predictive_ls2[t]` immediately afterward, but *before* reweighting on $r_t$, captures the state informed only by $r_{0..t-1}$. Only after that record does $r_t$ enter, via the reweight step, producing the resampled set that iteration $t+1$'s propagate line will advance next. The t→t+1 transition is this loop boundary itself: each iteration ends informed by that day's real return; the next iteration's first two lines carry it forward and record the result before the *next* day's return touches it.
+
+### Why the Mean Survives Resampling's Duplication, But Variance Wouldn't
+
+Theoretical.md (SV-Specific Sequential Mechanics) notes that at any single time step, the $N$ particles post-resample are not $N$ independent pieces of information, since resampling duplicates high-weight particles. Two things limit how much this affects `predictive_ls2` specifically:
+
+1. **Timing**: `predictive_ls2[t]` is recorded immediately after propagation, which injects an independent $\eta_t^{(n)}$ into every particle — including ones that were exact duplicates entering the step. By the time the mean is taken, that step's duplication has already been broken by fresh independent noise.
+2. **Resampling is unbiased for first moments by construction**: each particle's expected number of copies exactly equals its weight, so the resampled set's mean is, in expectation, unbiased for the true weighted mean — duplication costs effective sample size (added noise), not bias.
+
+Variance/spread statistics don't get this same protection — exact duplicates mechanically understate spread (the classic particle-impoverishment problem), a qualitatively worse failure than the mean's added noise. This is why the design never asks the within-draw $N$ particles for spread at all: cross-sample variability (CI bands, forecast spread) comes entirely from varying across the $S$ independent posterior draws instead, each with its own separate, genuinely-independent particle-filter run — never from the $N$ particles within one draw's run.
+
+### Carrying State Forward and Warm-Starting the Refit
+
+Next window's start: `ls2_current_seq_sv = filtered_hist[:, -1]` — `pmcmc_sequential`'s own particle filter already reweights on every day's real return (see PMCMC, Step 3, above), so its last entry already reflects the window's full return history; no extra step is needed here the way EGARCH needed `ls2_next`.
+
+This per-draw carried state is pooled to a single scalar, `ls2_seed_scalar_sv = float(np.mean(ls2_current_seq_sv))`, mirroring EGARCH's own `ls2_seed_scalar`, and passed as `pmcmc_sequential`'s `ls2_init` argument — forwarded to every `particle_filter_sv` call inside that window's refit (both the initial $\theta$ and every proposal), so every likelihood evaluation is scored starting from the true carried-forward state rather than that proposal's own stationary distribution (see PMCMC, Step 1, above).
+
+### A Richer Warm-Start Is Possible With No Code Change to `pmcmc_sequential`/`particle_filter_sv`
+
+The current warm-start pools the previous window's $S$ per-draw end states to a single scalar, so every particle in every likelihood evaluation starts from the same point — the carried-forward *spread* is discarded, only its mean survives. A richer alternative: resample $N$ particles directly from the previous window's empirical distribution of end states, `np.random.choice(ls2_current_seq_sv, size=N, replace=True)`, preserving that spread instead of collapsing it.
+
+Verified (not just assumed): this needs no change to either function. `pmcmc_sequential` never inspects `ls2_init` beyond forwarding it to `particle_filter_sv` (it appears nowhere else in the function body). And `particle_filter_sv`'s `particles = np.full(N, ls2_init)` already broadcasts correctly whether `ls2_init` is a scalar or a length-$N$ array — confirmed directly: `np.full(5, np.array([1,2,3,4,5]))` returns the array unchanged, not an unexpected fill-value error. So the entire change would be a single line at the call site in the main sequential loop, replacing the `np.mean(...)` with `np.random.choice(...)`. Not yet implemented — flagged for later, alongside the analogous (but structurally harder — see EGARCH's `beta_egarch`/NUTS-stability discussion) question of whether EGARCH's refit-seed pooling could be improved the same way.
 
