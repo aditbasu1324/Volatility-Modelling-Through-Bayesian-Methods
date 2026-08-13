@@ -110,7 +110,7 @@ Same test on $z_t^2$ (sign removed). High $p$ → model captures true clustering
 
 ### Engle-Ng Sign-Bias Test — leverage effect
 $$z_t^2 = \beta_0 + \beta_1\cdot\text{sign}(r_{t-1}) + \epsilon_t$$
-Predicted squared error: $\beta_0-\beta_1$ after a down day, $\beta_0+\beta_1$ after an up day. $H_0$: $\beta_1=0$. Significant $\beta_1<0$ → larger errors after negative returns — model fails to capture leverage.
+Predicted squared error: $\beta_0-\beta_1$ after a down day, $\beta_0+\beta_1$ after an up day. $H_0$: $\beta_1=0$. Significant $\beta_1<0$ → larger errors after negative returns — model fails to capture leverage. The HC3 covariance type is used instead of OLS since $\epsilon_t$ is not assumed to be constant.
 
 A significant result on any of these three tests indicates systematic, time-varying miscalibration the pooled KS test cannot detect.
 

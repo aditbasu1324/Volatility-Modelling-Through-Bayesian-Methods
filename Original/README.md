@@ -4,27 +4,23 @@ This is a university project assigned under Bayesian Machine Learning Module.
 
 The goal of the project was to model volatility using Bayesian Methods.
 
-This section contains the original work submitted, but this project will be improved upon and the errors found will be listed below. 
+This section contains the original work submitted, but this project will be improved upon; the improved version is in the Improved Folder.
 
-Conceptual Error:
+## Known Issues (Fixed in Improved/)
 
-Realized volatility (needed to account for difference in computing this for baseline as opposed to standard model (used RMS everywhere))
+**1. Historical volatility was computed incorrectly.**
+The wrong version of historical volatility was used for the models, including using 1/(h-1) instead of 1/h on the model side. The baseline was also computed inconsistently with the models (RMS used throughout instead of matching the baseline's own convention). "Realized volatility" was the working name for this quantity from an earlier plan to use intraday returns; since the project ended up using daily returns, historical volatility is the more accurate term and the more accurate comparison target. This also required revisiting what the comparison should expect of $F_{t}$, and fixing an alignment error this caused in PMCMC. Corrected in Metrics.md and the code of the improved version.
 
-Historical volatility is more accurate than realized volatility in this context since its daily returns (plan was initially to do intraday returns so the name stuck)
+**2. PIT was computed incorrectly.**
+In the sequential setting, PIT used the implied paths rather than the forecasted paths. Corrected in the code of the improved version.
 
-Incorrectly used 1/h-1 for the model side instead of 1/h
+**3. The regression vs. sequential comparison was conflated with the COVID stress test.**
+Running that comparison only on the COVID period mixed two separate questions: whether the models generalize (regression vs. sequential) and how they perform under stress (COVID). These are now split into two separate comparisons, with the code restructured accordingly.
 
-Adding metrics to the baseline that were not thought of initially. including the time series metrics
+**Other implementation/code improvements**
+- Reorganized the code into functions for better organization and reproducibility.
+- Added the missing metrics (including the serial diagnostic tests) for the baseline, which previously didn't have them computed.
+- Considered the metrics in more depth and improved the theoretical justification of the models.
+- Fixed a coding error in the MCMC step's use of `prior_std`.
+- Improved the sampling code, including a method 1 vs. method 2 discussion and carrying forward 2000 draws instead of 8000.
 
-Change the structure of the code to include COVID stuff.
-
-Consider the metrics in more detail and improve the theoretical justification of the models
-Consider the prior predictive checks more clearly
-Create functions to make the code more organized and more reproducible for the future.
-
-Understand the historical volatility comparison in more detail (the expectation with regards to Ft).
-Coding error in MCMC with using prior_std, 
-Additionally the PIT for sequential was based on implied paths not the forecasted paths
-
-changed a bunch of the sampling code, including addition of the method 1, method 2 discussion the 2000 as opposed to 8000 values carry forward
-Chaning the code for PMCMC to prevent alignment errors and preventing the other error with historical volatility

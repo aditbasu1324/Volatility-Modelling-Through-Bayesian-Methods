@@ -2,7 +2,7 @@
 
 First, the outputs from 2022-2025 regression and sequential are compared to identify how well models perform and whether or not they can generalize effectively to a sequential setting.
 
-Then later on, the 2018-2021 period containing COVID and the  2022-2025 regression periods will be compared to assess how well the models respond to a period containing a sudden shock.
+Then later on, the 2018-2021 period containing COVID and the 2022-2025 regression periods will be compared to assess how well the models respond to a period containing a sudden shock.
 
 ## General Results
 
@@ -18,17 +18,29 @@ On the COVID test, EGARCH adapts best to sudden shocks i.e the COVID spike. Howe
 
 Note that for baseline, the regression and sequential forecasts are identical except for the measurement noise.
 
-Additionally, Window 7 is the most volatile period here so it is used to test how well models adapt to a new volatile period.
+Additionally, Window 7 is the most volatile period here so the model's performance on this window is highlighted separately.
 
 ### Results
 
-Historical volatility metrics don't generalize as well to a sequential setting which can be seen through the 4x, 5x increase in QLIKE mean for EGARCH and SV respectively. Additionally, this gets worse in volatile periods as seen from the 6x increase in QLIKE mean in Window 7.
+Historical volatility metrics don't generalize as well to a sequential setting which can be seen through the 4x, 5x increase in QLIKE mean for EGARCH and SV respectively. Additionally, this gets worse in more volatile periods as seen from the 6x increase in QLIKE mean in Window 7.
 
-For all the volatility tests, models that pass or fail in the regression setting continue to pass or fail in the sequential setting i.e the volatility tests do generalize. However, the models do get worse at the volatility property tests (lower p values) in the sequential setting with a notable exception being SV at the shape test.
+For all the volatility tests, models that pass or fail in the regression setting continue to pass or fail in the sequential setting i.e the volatility tests do generalize. However, the models do get worse at the volatility property tests (score lower p values) in the sequential setting with a notable exception being SV at the shape test.
 
 The evidence for these results along with associated summaries are given in the tables below.
 
 ### Tables: 2022-2025, Regression vs. Sequential
+
+## How to Read the Results Below
+
+- **QLIKE**: lower is better; no fixed threshold, primarily useful for ranking models against each other.
+- **HV Coverage**: for a stated CI (e.g. 90%), the target is that exact percentage — below target means overconfident (too-narrow) intervals; above target means underconfident (too-wide) intervals.
+- **Interval width**: given similar coverage, narrower is more informative; a wide interval can trivially achieve "good" coverage while carrying little real information.
+- **Measurement noise ($\hat\sigma_\eta$) progression**: growing over the sequential period indicates the gap between forecast and empirical benchmark is widening, not narrowing.
+- **Forecast-actual correlation**: higher indicates the forecast genuinely tracks real movements; near-zero indicates little to no relationship.
+- **PIT/KS p-value**: p>0.05 indicates no evidence of miscalibration (a "pass"); the KS statistic itself indicates the size of any deviation, useful for comparing severity even when p-values are hard to compare across differing sample sizes.
+- **Ljung-Box / Engle-Ng p-values**: p>0.05 indicates that the requisite volatility fact has already been captured by the models since the residuals have no evidence of the tested patterns (no directional persistence, no clustering, no leverage-driven bias); the coefficient/statistic size indicates how severe a failure is, not just whether it's significant.
+- **Metrics with a fixed ideal value** (correlation: ideal=1; coverage: ideal=stated CI level; PIT/Ljung-Box/Engle-Ng p-values: no fixed "ideal" number, but a clear pass/fail threshold at 0.05) are read by their distance from that fixed point, not by ratio-to-baseline.
+- **Metrics with no fixed ideal** (QLIKE: no natural zero or target value, only meaningful in comparison) are read as ratios relative to baseline.
 
 #### 1. QLIKE
 
@@ -236,26 +248,13 @@ In particular, there is COVID spike (30th Jan-30th April 2020). The COVID covera
 
 Based on historical volatility metrics, EGARCH reacts best to the COVID spike although it is still worse than SV with regards to the overall COVID period. 
 
-With regards to volatility facts, EGARCH passes volatility clustering in the COVID period whereas in the standard period only SV passsed volatility clustering. Additionally, all 3 models fail the leverage test in this period whereas all 3 passed in the standard period though EGARCH is still better at incorporating the leverage effect.
+With regards to volatility facts, EGARCH passes volatility clustering in the COVID period whereas in the standard period, only SV passsed volatility clustering. Additionally, all 3 models fail the leverage test in this period whereas all 3 passed in the standard period though EGARCH is still better at incorporating the leverage effect.
 
 Additionally, the COVID breakdown demonstrates that models are better at capturing volatility facts under individual regimes as opposed to the entire period For instance, SV fails on the volatility clustering test but passes this test for every individual regime.
 
 The evidence for these results and a full breakdown of each section's results are given in tables below that are also summarized. 
 
 ### Tables: 2018-2021 vs. 2022-2025 (COVID Stress Test)
-
-## How to Read the Results Below
-
-- **QLIKE**: lower is better; no fixed threshold, primarily useful for ranking models against each other.
-- **HV Coverage**: for a stated CI (e.g. 90%), the target is that exact percentage — below target means overconfident (too-narrow) intervals; above target means underconfident (too-wide) intervals.
-- **Interval width**: given similar coverage, narrower is more informative; a wide interval can trivially achieve "good" coverage while carrying little real information.
-- **Measurement noise ($\hat\sigma_\eta$) progression**: growing over the sequential period indicates the gap between forecast and empirical benchmark is widening, not narrowing.
-- **Forecast-actual correlation**: higher indicates the forecast genuinely tracks real movements; near-zero indicates little to no relationship.
-- **PIT/KS p-value**: p>0.05 indicates no evidence of miscalibration (a "pass"); the KS statistic itself indicates the size of any deviation, useful for comparing severity even when p-values are hard to compare across differing sample sizes.
-- **Ljung-Box / Engle-Ng p-values**: p>0.05 indicates that the requisite volatility fact has already been captured by the models since the residuals have no evidence of the tested patterns (no directional persistence, no clustering, no leverage-driven bias); the coefficient/statistic size indicates how severe a failure is, not just whether it's significant.
-
-- **Metrics with a fixed ideal value** (correlation: ideal=1; coverage: ideal=stated CI level; PIT/Ljung-Box/Engle-Ng p-values: no fixed "ideal" number, but a clear pass/fail threshold at 0.05) are read by their distance from that fixed point, not by ratio-to-baseline.
-- **Metrics with no fixed ideal** (QLIKE: no natural zero or target value, only meaningful in comparison) are read as ratios relative to baseline.
 
 #### 1. QLIKE
 
@@ -456,7 +455,7 @@ Considering the subperiod breakdown,
 
 SV passes volatility clustering in all individual periods and EGARCH passes all the leverage tests despite failing their respective overall tests. 
 
-All models pass directional persistence in all periods. SV and EGARCH pass volatility clustering in all periods. EGARCH passes leverage test in all periods while SV only passes this test in post-COVID coverage
+All models pass directional persistence in all periods. SV and EGARCH pass volatility clustering in all periods. EGARCH passes leverage test in all periods while SV only passes this test in post-COVID coverage.
 
 
 
