@@ -150,11 +150,13 @@ Priors are validated through **prior predictive checking** (explained later).
 
 Unlike the baseline model, Bayesian models produce a distribution of values. For most of the metrics, these posteriors need to be collapsed.
 
-**Method 1 — collapse after applying the metric**: apply the metric separately to each draw, then average the resulting values.
-$$\overline{M}^{\text{(Method 1)}} = \frac{1}{S}\sum_{s=1}^S M\left(x^{(s)}\right)$$ (treat each volatility path individually, compute the metric on this path and then average the result)
+**Method 1 — collapse after applying the metric**: apply the metric separately to each draw, then average the resulting values (treat each volatility path individually, compute the metric on this path, and then average the result).
 
-**Method 2 — collapse before applying the metric**: average the draws first, then apply the metric once to the resulting single value.
-$$\overline{M}^{\text{(Method 2)}} = M\left(\frac{1}{S}\sum_{s=1}^S x^{(s)}\right)$$ (create a mean path based on the posterior values and then apply the metric to this)
+$$\overline{M}^{\text{(Method 1)}} = \frac{1}{S}\sum_{s=1}^S M\left(x^{(s)}\right)$$
+
+**Method 2 — collapse before applying the metric**: average the draws first, then apply the metric once to the resulting single value (create a mean path based on the posterior values, then apply the metric to this).
+
+$$\overline{M}^{\text{(Method 2)}} = M\left(\frac{1}{S}\sum_{s=1}^S x^{(s)}\right)$$
 
 These methods produce different results. For each metric/decision, the correct method to choose will be reasoned through in its respective section with the exception of historical volatility since its required for prior predictive checking.
 
